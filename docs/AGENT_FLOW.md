@@ -1,148 +1,70 @@
 # Agent Flow: Velox Earnings Research Run
 
-This diagram focuses on the runtime graph from ticker selection to reviewed report production. It intentionally skips provider/storage implementation details so we can reason about agents, state updates, retries, interrupts, and awaits.
+The canonical Mermaid source for this flow lives in [agent-flow.mmd](/Users/vvictor/Personal/Projects/AI%20Projects/velox/docs/agent-flow.mmd).
 
-```mermaid
-flowchart LR
-    user[User types in ticker search] --> select[User selects ticker from typeahead]
-    select --> init[Initialize RunState]
-    init --> resolve[Resolve selected company identity]
-    resolve --> resolvable{Still resolvable?}
-    resolvable -- no --> badTicker[[Interrupt: ask user to reselect ticker]]
-    badTicker --> user
-    resolvable -- yes --> supervisor[Supervisor creates research plan]
+This flow focuses on the runtime path from ticker selection to reviewed report production. It highlights state updates, tool retries, degraded continuation, reviewer repair/revision loops, interrupts, and the Human Review Gate.
 
-    supervisor --> fanout[Schedule evidence gathering]
-    fanout --> market[Market Data Agent]
-    fanout --> filings[Company Filings Agent]
-    fanout --> news[News Retrieval Agent]
-    fanout --> prior[Prior Report Lookup]
+## Runtime Sequence
 
-    market --> toolCheck{Tool failure or stale data?}
-    filings --> toolCheck
-    news --> toolCheck
-    prior --> toolCheck
-
-    toolCheck -- yes --> retry[Retry failed tool once]
-    retry --> recovered{Recovered?}
-    recovered -- no --> gap[Record explicit gap or stale-data warning]
-    recovered -- yes --> assemble[Assemble Evidence Pack]
-    toolCheck -- no --> assemble
-    gap --> assemble
-
-    assemble --> evidenceGate{Minimum evidence met?}
-    evidenceGate -- no --> stopWeak[[Interrupt: explain missing evidence and stop]]
-    evidenceGate -- yes --> themes[News Theme Agent]
-    themes --> themesOk{Themes valid?}
-    themesOk -- "no, retry left" --> themesRetry[Retry themes or fallback model]
-    themesOk -- "no, exhausted" --> stopAgent[[Interrupt: explain agent failure]]
-    themesRetry --> themes
-    themesOk -- yes --> delta[Delta Agent]
-
-    delta --> deltaOk{Delta valid?}
-    deltaOk -- "no, retry left" --> deltaRetry[Retry delta or fallback model]
-    deltaOk -- "no, exhausted" --> stopAgent
-    deltaRetry --> delta
-    deltaOk -- yes --> risk[Risk Analyst Agent]
-
-    risk --> riskOk{Risks grounded?}
-    riskOk -- "no, retry left" --> riskRetry[Retry risk or fallback model]
-    riskOk -- "no, exhausted" --> stopAgent
-    riskRetry --> risk
-    riskOk -- yes --> draft[Brief Drafter Agent]
-
-    draft --> draftOk{Brief schema valid?}
-    draftOk -- "no, retry left" --> draftRetry[Retry draft or fallback model]
-    draftOk -- "no, exhausted" --> stopAgent
-    draftRetry --> draft
-    draftOk -- yes --> review[Reviewer Agent]
-
-    review --> reviewGate{Review passed?}
-    reviewGate -- no --> revise[Revise draft with reviewer findings]
-    revise --> review
-    reviewGate -- yes --> report[Reviewed Earnings Brief]
-
-    report --> awaitApproval[[Await: human approves save or export]]
-    awaitApproval --> approved{Approved?}
-    approved -- no --> endNoSave[End run without write action]
-    approved -- yes --> final[Finalize report snapshot]
-    final --> done[Run complete]
-    endNoSave --> done
-
-    subgraph State["RunState checkpointed between nodes"]
-      stateFields["ticker, company identity, research plan, evidence pack, tool ledger, retries, warnings, prior report summary, agent outputs, reviewer findings, telemetry, approval status"]
-    end
-
-    init -. creates .-> State
-    resolve -. writes .-> State
-    market -. writes .-> State
-    filings -. writes .-> State
-    news -. writes .-> State
-    prior -. writes .-> State
-    gap -. writes .-> State
-    assemble -. writes .-> State
-    themes -. writes .-> State
-    delta -. writes .-> State
-    risk -. writes .-> State
-    draft -. writes .-> State
-    review -. writes .-> State
-    awaitApproval -. pauses .-> State
-
-    classDef input fill:#f7f7f7,stroke:#374151,color:#111827
-    classDef control fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e
-    classDef agent fill:#fef3c7,stroke:#b45309,color:#78350f
-    classDef llm fill:#ede9fe,stroke:#6d28d9,color:#3b0764
-    classDef decision fill:#fff7ed,stroke:#ea580c,color:#7c2d12
-    classDef interrupt fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
-    classDef output fill:#dcfce7,stroke:#16a34a,color:#14532d
-    classDef state fill:#ecfeff,stroke:#0891b2,color:#164e63,stroke-dasharray: 5 5
-
-    class user,select input
-    class init,resolve,supervisor,fanout,retry,gap,assemble,themesRetry,deltaRetry,riskRetry,draftRetry,revise,final control
-    class market,filings,news,prior agent
-    class themes,delta,risk,draft,review llm
-    class resolvable,toolCheck,recovered,evidenceGate,themesOk,deltaOk,riskOk,draftOk,reviewGate,approved decision
-    class badTicker,stopWeak,stopAgent,awaitApproval interrupt
-    class report,done,endNoSave output
-    class State,stateFields state
-```
+1. User selects a ticker from local typeahead.
+2. Velox initializes `RunState`.
+3. The graph resolves company identity from the local SEC-seeded ticker cache.
+4. Prior approved report memory is loaded from Mem0/local snapshot when available.
+5. Public evidence is collected from SEC, Finnhub, and optionally Alpha Vantage.
+6. Provider failures are categorized, retried once when recoverable, and either sent through fallback or disclosed as gaps.
+7. Evidence is normalized into a cited evidence pack.
+8. The minimum evidence gate stops weak runs before drafting.
+9. LLM agents produce news themes, delta findings, risks/watch items, and the draft brief using structured JSON.
+10. The reviewer checks citations, warning disclosure, schema, stale-data handling, unsupported claims, and safety boundaries.
+11. Repairable citation issues or content issues are routed through one automatic repair/revision attempt.
+12. If the reviewer passes, the run waits at the Human Review Gate.
+13. If the user approves, Velox saves the report to Mem0 and a local snapshot mirror. If the user does not approve, the run ends without a write action.
 
 ## Agent Nodes
 
 | Node | Responsibility | LLM? | State written |
 |---|---|---:|---|
-| Supervisor | Creates plan, routes graph, branches on failures, records progress. | No/optional | `research_plan`, `current_step`, `node_statuses` |
-| Resolve selected company identity | Confirms the typeahead selection still maps to a public U.S. ticker before spending tokens. | No | `company_identity`, `validation_status` |
-| Market data agent | Fetches earnings timing, quote, basic market context. | No | `earnings_snapshot`, `market_snapshot`, `tool_ledger` |
-| Company filings agent | Fetches SEC/company facts and recent filing metadata. | No | `company_context`, `filing_context`, `tool_ledger` |
-| News retrieval agent | Fetches recent public headlines. | No | `news_items`, `tool_ledger` |
-| Prior report lookup | Loads the last approved report snapshot for this ticker when one exists. | No | `prior_report_summary`, `prior_report_timestamp` |
-| Evidence assembler | Normalizes tool outputs into tables and decides whether minimum evidence exists. | No | `evidence_pack`, `warnings` |
-| News theme agent | Groups headlines into earnings-relevant themes such as demand, guidance, margin pressure, regulation, product cycle, competition, or management commentary. | Yes | `news_themes` |
-| Delta agent | Compares current findings to prior approved report when available. | Yes | `delta_findings`, `stale_memory_notes` |
-| Risk analyst agent | Produces risk register, watch items, bull/bear considerations from evidence only. | Yes | `risk_register`, `watch_items` |
-| Brief drafter agent | Creates the structured earnings preview brief. | Yes | `draft_brief` |
-| Reviewer agent | Checks the draft against the evidence pack, tool ledger, stale-data warnings, required brief schema, and no-investment-advice policy. | Yes/checklist | `reviewer_findings`, `review_status` |
+| Resolve company identity | Confirms the selected ticker maps to a public company, exchange, and CIK. | No | `company`, `warnings`, `status` |
+| Prior report lookup | Loads the last approved report snapshot when one exists and distinguishes missing memory from lookup failure. | No | `prior_memory`, `tool_results`, `warnings` |
+| Evidence collection | Calls public data providers and records tool status, retry/fallback behavior, freshness, and raw normalized payloads. | No | `tool_results`, `retry_records`, `fallback_records` |
+| Evidence assembler | Normalizes provider outputs into cited earnings, SEC, news, and prior-memory evidence. | No | `evidence_pack`, `earnings`, `news`, `warnings` |
+| Minimum evidence gate | Stops before drafting when evidence is too weak to support a grounded brief. | No | `status`, `progress_text`, `warnings` |
+| News Theme Agent | Groups recent headlines into earnings-relevant themes using only supplied evidence. | Yes | `news_themes`, `warnings`, `telemetry` |
+| Delta Agent | Compares current evidence against prior approved memory when available. | Yes | `delta_findings`, `warnings`, `telemetry` |
+| Risk Analyst Agent | Produces earnings-relevant risks and watch items from the evidence, themes, and delta findings. | Yes | `risk_findings`, `warnings`, `telemetry` |
+| Brief Drafter Agent | Creates the structured cited earnings preview brief. | Yes | `brief`, `warnings`, `telemetry` |
+| Reviewer Agent | Checks schema, citations, warning disclosure, stale-data handling, unsupported claims, and no-investment-advice boundaries. | Yes/checklist | `reviewer_result`, `approval_status`, `telemetry` |
+| Human Review Gate | Pauses before durable memory writes. | Human | `approval_status` |
+| Memory save | Saves only approved reports to Mem0 and local snapshot mirror. | No | `prior_memory`, `tool_results`, `approval_status` |
 
 ## Interrupts And Awaits
 
 | Point | Type | Why it exists |
 |---|---|---|
-| Unresolvable ticker selection | Interrupt | Typeahead prevents most invalid tickers, but this catches stale dropdown results or provider mismatches. |
-| Tool failure after retry | Branch | Continue with explicit missing-data or stale-data warning instead of silent fallback. |
-| Minimum evidence missing | Interrupt | Stop before drafting if the report would be too weak to be useful or grounded. |
-| Agent output failure | Branch | Retry the same agent or fallback model when JSON/schema/grounding checks fail. |
-| Reviewer failed | Loop | Send reviewer findings back to the drafter once before presenting the report. |
-| Human approval | Await | The agent can research and draft autonomously, but final save/export requires user approval. |
+| Unresolvable ticker selection | Interrupt | Typeahead prevents most invalid tickers, but this catches stale local data or unsupported symbols. |
+| Tool failure after retry | Branch | Continue with explicit missing-data/stale-data warnings instead of silent fallback. |
+| Minimum evidence missing | Interrupt | Stop before drafting if the report would be too weak to ground. |
+| Optional analysis output failure | Degraded continuation | News themes, delta, or risks can be skipped with visible warnings if the rest of the report remains grounded. |
+| Draft/reviewer output failure | Interrupt | Stop before approval if final report or reviewer output cannot be validated. |
+| Reviewer failed | Repair/revision loop | Attempt deterministic citation repair or one content revision before blocking approval. |
+| Human approval | Await | The agent can research and draft autonomously, but Mem0/local snapshot writes require explicit approval. |
 
-## LLM Selection Note
+## Model Pins
 
-During testing, each LLM-backed node should be pinned to one specific model and prompt version. The router can still support multiple providers, but the submitted/demo configuration should be fixed so results are reproducible.
+The submitted configuration pins each LLM-backed node to a specific provider/model/prompt version so demo behavior is reproducible while still allowing `.env` overrides.
 
-Recommended prompt files:
+| Stage | Default model |
+|---|---|
+| News theme analysis | `accounts/fireworks/models/gpt-oss-120b` |
+| Delta analysis | `openai/gpt-oss-120b` |
+| Risk analysis | `accounts/fireworks/models/gpt-oss-120b` |
+| Brief drafting | `accounts/fireworks/models/gpt-oss-120b` |
+| Reviewer | `openai/gpt-oss-120b` |
 
-- `src/velox/prompts/news_theme_classifier.md`
-- `src/velox/prompts/delta_analyst.md`
-- `src/velox/prompts/risk_analyst.md`
+Prompt files:
+
+- `src/velox/prompts/news_theme.md`
+- `src/velox/prompts/delta.md`
+- `src/velox/prompts/risk.md`
 - `src/velox/prompts/brief_drafter.md`
 - `src/velox/prompts/reviewer.md`

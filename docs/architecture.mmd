@@ -1,67 +1,72 @@
 flowchart LR
-    ui[Web UI<br/>typeahead ticker search<br/>progress, tables, telemetry] --> orch[LangGraph Orchestrator<br/>control flow, checkpointed state<br/>retries, fallbacks, approval boundary]
+    user[User<br/>selects ticker] --> ui[Streamlit UI<br/>local typeahead<br/>progress + report tabs]
+    ui --> graph[LangGraph Orchestrator<br/>stateful control flow<br/>retries + fallbacks<br/>human boundary]
 
-    orch --> identity[Resolve Company Identity<br/>ticker, exchange, CIK]
-    identity --> identityOk{Identity resolved?}
-    identityOk -- no --> reselect[[Ask user to reselect]]
-    identityOk -- yes --> evidenceStart[Start parallel evidence collection]
+    graph --> state[(RunState<br/>ticker + company<br/>evidence + warnings<br/>tool ledger + telemetry<br/>approval status)]
 
-    evidenceStart --> market[Market Data Tool<br/>earnings, quote, overview]
-    evidenceStart --> sec[SEC EDGAR Tool<br/>company facts, filings]
-    evidenceStart --> news[News Tool<br/>recent public headlines]
-    evidenceStart --> memoryRead[Mem0 / Local Snapshot<br/>prior approved report]
+    graph --> tools{{Public Tool Layer}}
+    tools --> ticker[Local SEC Ticker Cache<br/>fast search<br/>ticker + company + CIK]
+    tools --> sec[SEC EDGAR<br/>submissions<br/>company facts]
+    tools --> alpha[Alpha Vantage<br/>optional earnings/news<br/>paced + budget aware]
+    tools --> finnhub[Finnhub<br/>baseline + fallback<br/>earnings + news]
+    tools --> memRead[Mem0 Lookup<br/>prior approved report]
 
-    market --> evidencePack[Evidence Pack<br/>normalized source tables<br/>tool ledger, freshness, warnings]
-    sec --> evidencePack
-    news --> evidencePack
-    memoryRead --> evidencePack
+    ticker --> evidence[Evidence Pack<br/>normalized records<br/>run-scoped citations<br/>freshness + gaps]
+    sec --> evidence
+    alpha --> evidence
+    finnhub --> evidence
+    memRead --> evidence
+    evidence --> gate{Minimum evidence met?}
 
-    evidencePack --> evidenceGate{Minimum evidence met?}
-    evidenceGate -- no --> stopWeak[[Stop with visible missing-data explanation]]
-    evidenceGate -- yes --> analysisStart[Analysis Stage]
+    gate -- no --> stop[[Stop / interrupt<br/>explain missing evidence]]
+    gate -- yes --> llm{{LLM Agent Layer<br/>curated prompts<br/>JSON schemas<br/>model + prompt telemetry}}
 
-    analysisStart --> newsThemes[News Theme Analysis<br/>LLM prompt + schema]
-    analysisStart --> delta[Delta Analysis<br/>current vs prior report]
+    llm --> themes[News Theme Agent]
+    llm --> delta[Delta Agent]
+    themes --> risk[Risk Analyst Agent]
+    delta --> risk
+    risk --> draft[Brief Drafter Agent]
+    draft --> reviewer[Reviewer Agent<br/>citations + warnings<br/>schema + safety]
 
-    newsThemes --> analysisJoin[Aggregate analysis outputs]
-    delta --> analysisJoin
-    analysisJoin --> risk[Risk Analysis<br/>uses evidence + themes + delta]
-    risk --> draft[Brief Drafter<br/>structured earnings preview]
-    draft --> reviewer[Reviewer<br/>grounding, schema, stale-data,<br/>safety boundary]
+    reviewer --> reviewOk{Reviewer passed?}
+    reviewOk -- repairable --> repair[Auto repair / revise once]
+    repair --> reviewer
+    reviewOk -- no --> blocked[[Block approval<br/>show reviewer findings]]
+    reviewOk -- yes --> gateHuman[[Human Review Gate<br/>user approves save]]
 
-    reviewer --> reviewOk{Review passed?}
-    reviewOk -- no --> revise[Revise once using reviewer findings]
-    revise --> reviewer
-    reviewOk -- yes --> brief[Reviewed Earnings Brief]
+    gateHuman -- not approved --> noWrite[End without write]
+    gateHuman -- approved --> memWrite[Mem0 Save<br/>local JSON mirror<br/>one current report per ticker]
+    memWrite --> complete[Run complete]
+    noWrite --> complete
 
-    brief --> approve[[Human approval<br/>before save/export]]
-    approve --> approved{Approved?}
-    approved -- no --> noSave[End without memory write]
-    approved -- yes --> memoryWrite[Save approved report<br/>Mem0 + local JSON snapshot]
-    memoryWrite --> done[Run complete]
-    noSave --> done
+    graph -. traces .-> langsmith[LangSmith<br/>graph + tool + LLM spans<br/>eval evidence]
+    tools -. results .-> state
+    evidence -. citations .-> state
+    reviewer -. findings .-> state
+    gateHuman -. pause .-> state
 
-    orch -. records .-> state[(RunState<br/>tool ledger, retries, warnings,<br/>agent outputs, telemetry)]
-    evidencePack -. updates .-> state
-    reviewer -. updates .-> state
-    approve -. pauses .-> state
-
-    classDef ui fill:#f7f7f7,stroke:#374151,color:#111827
+    classDef input fill:#f8fafc,stroke:#475569,color:#0f172a
+    classDef uiClass fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
     classDef control fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e
-    classDef tool fill:#dcfce7,stroke:#16a34a,color:#14532d
-    classDef llm fill:#ede9fe,stroke:#6d28d9,color:#3b0764
+    classDef tool fill:#ecfdf5,stroke:#059669,color:#064e3b
+    classDef memory fill:#fdf2f8,stroke:#db2777,color:#831843
+    classDef evidenceClass fill:#fefce8,stroke:#ca8a04,color:#713f12
+    classDef llmClass fill:#ede9fe,stroke:#7c3aed,color:#3b0764
     classDef decision fill:#fff7ed,stroke:#ea580c,color:#7c2d12
     classDef interrupt fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
-    classDef memory fill:#fce7f3,stroke:#be185d,color:#831843
-    classDef state fill:#ecfeff,stroke:#0891b2,color:#164e63,stroke-dasharray: 5 5
-    classDef output fill:#dcfce7,stroke:#15803d,color:#14532d
+    classDef output fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef obs fill:#f1f5f9,stroke:#64748b,color:#334155,stroke-dasharray: 5 5
+    classDef stateClass fill:#ecfeff,stroke:#0891b2,color:#164e63,stroke-dasharray: 5 5
 
-    class ui ui
-    class orch,identity,evidenceStart,evidencePack,analysisStart,analysisJoin,revise control
-    class market,sec,news tool
-    class newsThemes,delta,risk,draft,reviewer llm
-    class identityOk,evidenceGate,reviewOk,approved decision
-    class reselect,stopWeak,approve interrupt
-    class memoryRead,memoryWrite memory
-    class state state
-    class brief,noSave,done output
+    class user input
+    class ui uiClass
+    class graph,repair control
+    class tools,ticker,sec,alpha,finnhub tool
+    class memRead,memWrite memory
+    class evidence evidenceClass
+    class llm,themes,delta,risk,draft,reviewer llmClass
+    class gate,reviewOk decision
+    class stop,blocked,gateHuman interrupt
+    class noWrite,complete output
+    class langsmith obs
+    class state stateClass

@@ -22,7 +22,7 @@ PNG/SVG exports should be generated from the Mermaid sources once the flow is st
 | Earnings Data | Retrieves next earnings event, recent reported quarters, EPS/revenue estimates when available, actuals, and surprise history. | Alpha Vantage MCP/direct REST primary; Finnhub fallback when configured. |
 | Company Context | Retrieves public company identity, CIK mapping, company facts, and recent filing metadata. | SEC EDGAR APIs. |
 | News | Retrieves recent company news/headlines as public evidence with timestamps, sources, URLs, and summaries. | Alpha Vantage MCP/direct REST `NEWS_SENTIMENT` primary; Finnhub company-news fallback when configured. |
-| Analysis Stage | Runs prompt-specialized analysis substeps: news themes and prior-report delta in parallel, then risk analysis after those outputs are available. | Shared LLM wrapper with per-substep prompts, schemas, retries, fallback model support, and telemetry. |
+| Analysis Stage | Runs prompt-specialized analysis substeps for news themes, prior-report delta, risk analysis, drafting, and review. | Shared LLM wrapper with per-substep prompts, schemas, retries, fallback model support, and telemetry. |
 | Memory / Prior Report | Loads prior approved report memory for delta analysis and saves approved snapshots after human approval. | Mem0 primary memory; local JSON snapshot export. |
 | Reviewer | Checks unsupported claims, missing source labels, stale data, and financial-safety boundary violations. | Separate LLM call or deterministic checklist. |
 | Tracing / Evals | Captures graph runs, tool calls, agent spans, retries, fallback decisions, prompt/model metadata, and offline eval results. | Optional LangSmith integration; app still runs with local telemetry when disabled. |
@@ -108,14 +108,14 @@ LangSmith experiment results should be used during model selection to compare Ne
 
 1. `search_ticker`: typeahead search returns selectable U.S. public-company symbols from the local ticker lookup file.
 2. `resolve_company_identity`: confirm the selected symbol still maps to a company, exchange, and SEC identifier before spending tokens.
-3. Parallel evidence collection:
+3. Orchestrated evidence collection:
    - `fetch_earnings`: retrieve earnings date/history and available expectation fields.
    - `fetch_company_context`: retrieve SEC/company context and recent filing metadata.
    - `fetch_news`: retrieve recent public news/headlines.
    - `load_memory`: retrieve prior approved report memory from Mem0 and local snapshot if present.
 4. `assemble_evidence_pack`: normalize tool outputs, source labels, freshness, warnings, and retry/fallback records into one structured evidence pack.
 5. `minimum_evidence_gate`: stop with an explicit explanation if the evidence pack is too weak to support a grounded brief.
-6. Parallel analysis substeps:
+6. Analysis substeps:
    - `analyze_news_themes`: classify headlines into earnings-relevant themes.
    - `analyze_delta`: compare current evidence with the last approved saved report when one exists.
 7. `analyze_risks`: generate risk flags and watch items using the evidence pack plus news-theme and delta outputs.
@@ -125,7 +125,7 @@ LangSmith experiment results should be used during model selection to compare Ne
 11. `save_memory`: after explicit user approval, save to Mem0 and local JSON snapshot.
 12. `manage_memory_limit`: if 10 ticker reports are already saved, ask the user to clear older reports before saving.
 
-The orchestrator should run independent work concurrently where possible. Market data, company context, news, and prior-report lookup can run in parallel. After evidence assembly, news-theme analysis and delta analysis can also run in parallel. Risk analysis intentionally runs after those two because it benefits from both outputs.
+The current implementation runs these stages in a deterministic sequence for debuggability and demo reliability. Independent provider calls and the news-theme/delta analysis pair are clean candidates for future parallelization; risk analysis intentionally stays after those outputs because it benefits from both.
 
 ## Earnings And News Data Contract
 
@@ -432,8 +432,8 @@ Build the app in an order that validates foundational blocks before UI polish or
 | 1. Data spike | Local ticker lookup works; Alpha Vantage returns earnings/news; SEC returns company context for 2-3 tickers; cost/latency measurements are captured. | Missing key, quota/rate-limit response, empty news, malformed response, unsupported ticker, and measured worst-case retry/fallback timing. |
 | 2. Typed contracts | `RunState`, `ToolResult`, `EvidencePack`, `EarningsSnapshot`, `NewsItem`, and citation records are populated. | Failed tools produce structured records instead of uncaught exceptions or silent gaps. |
 | 3. Provider adapters | SEC, Alpha Vantage, and optional Finnhub adapters normalize data into one evidence pack. | Retry once, fallback when configured, otherwise record explicit warning. |
-| 4. Minimal LangGraph flow | Parallel evidence collection reaches evidence pack and minimum evidence gate. | Weak evidence stops before drafting with a clear user-facing explanation. |
-| 5. LLM structured-output spike | News themes and delta run in parallel; risk uses both; draft and review produce valid schemas. | Schema/grounding failure triggers retry/fallback; exhausted failure interrupts visibly. |
+| 4. Minimal LangGraph flow | Evidence collection reaches evidence pack and minimum evidence gate. | Weak evidence stops before drafting with a clear user-facing explanation. |
+| 5. LLM structured output | News themes, delta, risk, draft, and review produce valid schemas. | Schema/grounding failure triggers retry/fallback; exhausted failure interrupts visibly. |
 | 6. Mem0 memory | Prior report lookup, delta, approved upsert save, and local JSON mirror work for one ticker. | Mem0 lookup failure is marked `lookup_failed`; save failure is visible; no duplicate version per ticker/CIK. |
 | 7. Streamlit UI | Local typeahead, progress timeline, evidence tables, cited report, reviewer findings, and approval button work. | Warnings, retries, stale/missing data, and memory failures are visible in the UI. |
 | 8. Tests and demo path | Known tickers produce useful reports with citations and telemetry. | Intentional failure path proves no silent fallback and reviewer catches unsupported claims. |
