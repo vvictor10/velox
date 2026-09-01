@@ -6,12 +6,11 @@ Velox uses a stateful agent workflow to turn a selected U.S. public-company tick
 
 ## Architecture Diagram
 
-- Overall architecture Mermaid source: [architecture.mmd](architecture.mmd)
-- Runtime agent flow Mermaid source: [agent-flow.mmd](agent-flow.mmd)
+- Overall architecture image: [velox-architecture.png](../assets/velox-architecture.png)
 - Runtime agent flow notes: [AGENT_FLOW.md](AGENT_FLOW.md)
 - Agentic workflow image: [velox-agentic-workflow.png](../assets/velox-agentic-workflow.png)
 
-Image exports and visual assets live under `/assets`; Mermaid sources stay under `/docs` as the canonical editable diagrams.
+Image exports and visual assets live under `/assets`. Mermaid source drafts are local-only working files under `docs/local/`.
 
 ## Core Components
 
