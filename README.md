@@ -8,7 +8,6 @@ Velox is a Week 3 agentic AI project for generating source-grounded earnings pre
 |---|---|---|
 | PRD | [docs/PRD.md](docs/PRD.md) | Reviewer-facing primer, framework table, product requirements, safety boundaries, and success criteria. |
 | Architecture | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Technical architecture, graph flow, tool strategy, telemetry, and data presentation. |
-| Project writeup | [docs/PROJECT_GOOGLE_DOC.md](docs/PROJECT_GOOGLE_DOC.md) | Markdown source that can be pasted into the final Google Doc. |
 | Diagrams | [assets/](assets/) | Final architecture and agentic workflow diagrams. |
 | Processed outputs | [data/processed/](data/processed/) | Approved report snapshots and generated outputs. |
 | App surface | [frontend/](frontend/) | Streamlit app entry point. |
