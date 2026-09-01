@@ -7,7 +7,6 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_ROOT / "data"
 STATIC_DATA_DIR = DATA_DIR / "static"
-RAW_SPIKE_DIR = DATA_DIR / "raw" / "spikes"
 PROCESSED_DATA_DIR = DATA_DIR / "processed"
 BRIEFS_DIR = PROCESSED_DATA_DIR / "briefs"
 LOCAL_DOCS_DIR = PROJECT_ROOT / "docs" / "local"
