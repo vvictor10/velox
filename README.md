@@ -8,10 +8,21 @@ Velox is a Week 3 agentic AI project for generating source-grounded earnings pre
 |---|---|---|
 | PRD | [docs/PRD.md](docs/PRD.md) | Reviewer-facing primer, framework table, product requirements, safety boundaries, and success criteria. |
 | Architecture | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Technical architecture, graph flow, tool strategy, telemetry, and data presentation. |
+| Diagrams | [assets/](assets/) | Final architecture and agentic workflow diagrams. |
 | Processed outputs | [data/processed/](data/processed/) | Approved report snapshots and generated outputs. |
 | App surface | [frontend/](frontend/) | Streamlit app entry point. |
 | Agent implementation | [src/](src/) | LangGraph orchestration, tools, memory snapshots, and report generation. |
 | Tests | [tests/](tests/) | Focused tests for tool fallbacks, safety boundaries, and report structure. |
+
+## Architecture Diagrams
+
+### System Architecture
+
+![Velox architecture overview](assets/velox-architecture.png)
+
+### Agentic Workflow
+
+![Velox agentic workflow](assets/velox-agentic-workflow.jpeg)
 
 ## Current Scope
 

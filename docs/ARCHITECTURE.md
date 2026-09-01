@@ -8,7 +8,7 @@ Velox uses a stateful agent workflow to turn a selected U.S. public-company tick
 
 - Overall architecture image: [velox-architecture.png](../assets/velox-architecture.png)
 - Runtime agent flow notes: [AGENT_FLOW.md](AGENT_FLOW.md)
-- Agentic workflow image: [velox-agentic-workflow.png](../assets/velox-agentic-workflow.png)
+- Agentic workflow image: [velox-agentic-workflow.jpeg](../assets/velox-agentic-workflow.jpeg)
 
 Image exports and visual assets live under `/assets`. Mermaid source drafts are local-only working files under `docs/local/`.
 
@@ -437,4 +437,4 @@ Build the app in an order that validates foundational blocks before UI polish or
 | 6. Mem0 memory | Prior report lookup, delta, approved upsert save, and local JSON mirror work for one ticker. | Mem0 lookup failure is marked `lookup_failed`; save failure is visible; no duplicate version per ticker/CIK. |
 | 7. Streamlit UI | Local typeahead, progress timeline, evidence tables, cited report, reviewer findings, and approval button work. | Warnings, retries, stale/missing data, and memory failures are visible in the UI. |
 | 8. Tests and demo path | Known tickers produce useful reports with citations and telemetry. | Intentional failure path proves no silent fallback and reviewer catches unsupported claims. |
-| 9. Polish and submission | Sample briefs, final writeup, Mermaid exports, and demo video are ready. | Reviewer-facing files contain only finalized submission content. |
+| 9. Polish and submission | Sample briefs, final writeup, diagram exports, and demo video are ready. | Reviewer-facing files contain only finalized submission content. |

@@ -1,6 +1,6 @@
 # Agent Flow: Velox Earnings Research Run
 
-The editable Mermaid source for this flow is kept as a local-only working file under `docs/local/`. The reviewer-facing workflow image lives in [velox-agentic-workflow.png](../assets/velox-agentic-workflow.png).
+The editable Mermaid source for this flow is kept as a local-only working file under `docs/local/`. The reviewer-facing workflow image lives in [velox-agentic-workflow.jpeg](../assets/velox-agentic-workflow.jpeg).
 
 This flow focuses on the runtime path from ticker selection to reviewed report production. It highlights state updates, tool retries, degraded continuation, reviewer repair/revision loops, interrupts, and the Human Review Gate.
 
