@@ -1,0 +1,42 @@
+# Local environments and secrets
+.venv*/
+.env*
+!.env.example
+.streamlit/secrets.toml
+*.key
+*.pem
+
+# Python caches and test/build outputs
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+pip-wheel-metadata/
+
+# OS/editor/notebook noise
+.DS_Store
+.ipynb_checkpoints/
+
+# Local-only working notes
+local/
+
+# Temporary data workspaces.
+data/cache/
+data/audit/
+data/experiments/
+data/archive/
+data/processed/briefs/*.json
+!data/processed/briefs/.gitkeep
+
+# Logs
+*.log
+
+# Internal docs and private planning
+docs/local/

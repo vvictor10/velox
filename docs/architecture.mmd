@@ -1,0 +1,67 @@
+flowchart LR
+    ui[Web UI<br/>typeahead ticker search<br/>progress, tables, telemetry] --> orch[LangGraph Orchestrator<br/>control flow, checkpointed state<br/>retries, fallbacks, approval boundary]
+
+    orch --> identity[Resolve Company Identity<br/>ticker, exchange, CIK]
+    identity --> identityOk{Identity resolved?}
+    identityOk -- no --> reselect[[Ask user to reselect]]
+    identityOk -- yes --> evidenceStart[Start parallel evidence collection]
+
+    evidenceStart --> market[Market Data Tool<br/>earnings, quote, overview]
+    evidenceStart --> sec[SEC EDGAR Tool<br/>company facts, filings]
+    evidenceStart --> news[News Tool<br/>recent public headlines]
+    evidenceStart --> memoryRead[Mem0 / Local Snapshot<br/>prior approved report]
+
+    market --> evidencePack[Evidence Pack<br/>normalized source tables<br/>tool ledger, freshness, warnings]
+    sec --> evidencePack
+    news --> evidencePack
+    memoryRead --> evidencePack
+
+    evidencePack --> evidenceGate{Minimum evidence met?}
+    evidenceGate -- no --> stopWeak[[Stop with visible missing-data explanation]]
+    evidenceGate -- yes --> analysisStart[Analysis Stage]
+
+    analysisStart --> newsThemes[News Theme Analysis<br/>LLM prompt + schema]
+    analysisStart --> delta[Delta Analysis<br/>current vs prior report]
+
+    newsThemes --> analysisJoin[Aggregate analysis outputs]
+    delta --> analysisJoin
+    analysisJoin --> risk[Risk Analysis<br/>uses evidence + themes + delta]
+    risk --> draft[Brief Drafter<br/>structured earnings preview]
+    draft --> reviewer[Reviewer<br/>grounding, schema, stale-data,<br/>safety boundary]
+
+    reviewer --> reviewOk{Review passed?}
+    reviewOk -- no --> revise[Revise once using reviewer findings]
+    revise --> reviewer
+    reviewOk -- yes --> brief[Reviewed Earnings Brief]
+
+    brief --> approve[[Human approval<br/>before save/export]]
+    approve --> approved{Approved?}
+    approved -- no --> noSave[End without memory write]
+    approved -- yes --> memoryWrite[Save approved report<br/>Mem0 + local JSON snapshot]
+    memoryWrite --> done[Run complete]
+    noSave --> done
+
+    orch -. records .-> state[(RunState<br/>tool ledger, retries, warnings,<br/>agent outputs, telemetry)]
+    evidencePack -. updates .-> state
+    reviewer -. updates .-> state
+    approve -. pauses .-> state
+
+    classDef ui fill:#f7f7f7,stroke:#374151,color:#111827
+    classDef control fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e
+    classDef tool fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef llm fill:#ede9fe,stroke:#6d28d9,color:#3b0764
+    classDef decision fill:#fff7ed,stroke:#ea580c,color:#7c2d12
+    classDef interrupt fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+    classDef memory fill:#fce7f3,stroke:#be185d,color:#831843
+    classDef state fill:#ecfeff,stroke:#0891b2,color:#164e63,stroke-dasharray: 5 5
+    classDef output fill:#dcfce7,stroke:#15803d,color:#14532d
+
+    class ui ui
+    class orch,identity,evidenceStart,evidencePack,analysisStart,analysisJoin,revise control
+    class market,sec,news tool
+    class newsThemes,delta,risk,draft,reviewer llm
+    class identityOk,evidenceGate,reviewOk,approved decision
+    class reselect,stopWeak,approve interrupt
+    class memoryRead,memoryWrite memory
+    class state state
+    class brief,noSave,done output

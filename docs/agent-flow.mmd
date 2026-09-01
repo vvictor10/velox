@@ -1,0 +1,102 @@
+flowchart LR
+    user[User types in ticker search] --> select[User selects ticker from typeahead]
+    select --> init[Initialize RunState]
+    init --> resolve[Resolve selected company identity]
+    resolve --> resolvable{Still resolvable?}
+    resolvable -- no --> badTicker[[Interrupt: ask user to reselect ticker]]
+    badTicker --> user
+    resolvable -- yes --> supervisor[Supervisor creates research plan]
+
+    supervisor --> fanout[Schedule evidence gathering]
+    fanout --> market[Market Data Agent]
+    fanout --> filings[Company Filings Agent]
+    fanout --> news[News Retrieval Agent]
+    fanout --> prior[Prior Report Lookup]
+
+    market --> toolCheck{Tool failure or stale data?}
+    filings --> toolCheck
+    news --> toolCheck
+    prior --> toolCheck
+
+    toolCheck -- yes --> retry[Retry failed tool once]
+    retry --> recovered{Recovered?}
+    recovered -- no --> gap[Record explicit gap or stale-data warning]
+    recovered -- yes --> assemble[Assemble Evidence Pack]
+    toolCheck -- no --> assemble
+    gap --> assemble
+
+    assemble --> evidenceGate{Minimum evidence met?}
+    evidenceGate -- no --> stopWeak[[Interrupt: explain missing evidence and stop]]
+    evidenceGate -- yes --> themes[News Theme Agent]
+    themes --> themesOk{Themes valid?}
+    themesOk -- "no, retry left" --> themesRetry[Retry themes or fallback model]
+    themesOk -- "no, exhausted" --> stopAgent[[Interrupt: explain agent failure]]
+    themesRetry --> themes
+    themesOk -- yes --> delta[Delta Agent]
+
+    delta --> deltaOk{Delta valid?}
+    deltaOk -- "no, retry left" --> deltaRetry[Retry delta or fallback model]
+    deltaOk -- "no, exhausted" --> stopAgent
+    deltaRetry --> delta
+    deltaOk -- yes --> risk[Risk Analyst Agent]
+
+    risk --> riskOk{Risks grounded?}
+    riskOk -- "no, retry left" --> riskRetry[Retry risk or fallback model]
+    riskOk -- "no, exhausted" --> stopAgent
+    riskRetry --> risk
+    riskOk -- yes --> draft[Brief Drafter Agent]
+
+    draft --> draftOk{Brief schema valid?}
+    draftOk -- "no, retry left" --> draftRetry[Retry draft or fallback model]
+    draftOk -- "no, exhausted" --> stopAgent
+    draftRetry --> draft
+    draftOk -- yes --> review[Reviewer Agent]
+
+    review --> reviewGate{Review passed?}
+    reviewGate -- no --> revise[Revise draft with reviewer findings]
+    revise --> review
+    reviewGate -- yes --> report[Reviewed Earnings Brief]
+
+    report --> awaitApproval[[Await: human approves save or export]]
+    awaitApproval --> approved{Approved?}
+    approved -- no --> endNoSave[End run without write action]
+    approved -- yes --> final[Finalize report snapshot]
+    final --> done[Run complete]
+    endNoSave --> done
+
+    subgraph State["RunState checkpointed between nodes"]
+      stateFields["ticker, company identity, research plan, evidence pack, tool ledger, retries, warnings, prior report summary, agent outputs, reviewer findings, telemetry, approval status"]
+    end
+
+    init -. creates .-> State
+    resolve -. writes .-> State
+    market -. writes .-> State
+    filings -. writes .-> State
+    news -. writes .-> State
+    prior -. writes .-> State
+    gap -. writes .-> State
+    assemble -. writes .-> State
+    themes -. writes .-> State
+    delta -. writes .-> State
+    risk -. writes .-> State
+    draft -. writes .-> State
+    review -. writes .-> State
+    awaitApproval -. pauses .-> State
+
+    classDef input fill:#f7f7f7,stroke:#374151,color:#111827
+    classDef control fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e
+    classDef agent fill:#fef3c7,stroke:#b45309,color:#78350f
+    classDef llm fill:#ede9fe,stroke:#6d28d9,color:#3b0764
+    classDef decision fill:#fff7ed,stroke:#ea580c,color:#7c2d12
+    classDef interrupt fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+    classDef output fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef state fill:#ecfeff,stroke:#0891b2,color:#164e63,stroke-dasharray: 5 5
+
+    class user,select input
+    class init,resolve,supervisor,fanout,retry,gap,assemble,themesRetry,deltaRetry,riskRetry,draftRetry,revise,final control
+    class market,filings,news,prior agent
+    class themes,delta,risk,draft,review llm
+    class resolvable,toolCheck,recovered,evidenceGate,themesOk,deltaOk,riskOk,draftOk,reviewGate,approved decision
+    class badTicker,stopWeak,stopAgent,awaitApproval interrupt
+    class report,done,endNoSave output
+    class State,stateFields state
