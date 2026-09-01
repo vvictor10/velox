@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from pydantic import BaseModel, Field
 
 from velox.config import AppSettings
@@ -10,6 +12,7 @@ from velox.models.earnings import EarningsSnapshot
 from velox.models.evidence import EvidencePack
 from velox.models.failures import FallbackRecord, RetryRecord
 from velox.models.news import NewsSnapshot
+from velox.models.telemetry import FailureCategory
 from velox.models.tool_result import ToolResult, ToolStatus
 from velox.models.warnings import WarningRecord
 from velox.observability import traceable_step
@@ -93,7 +96,7 @@ def collect_public_data(company: CompanyIdentity, settings: AppSettings) -> Publ
             _traced_tool_call(
                 settings,
                 "alpha_vantage.news_sentiment",
-                lambda: alpha_vantage.news_sentiment(company.ticker),
+                lambda: _alpha_news_sentiment(company, settings, alpha_vantage),
             ),
             policy=retry_policy,
             retry_message="Retrying Alpha Vantage news fetch.",
@@ -172,6 +175,22 @@ def _traced_tool_call(settings: AppSettings, tool_name: str, call):
         metadata={"tool_name": tool_name},
         settings=settings,
     )(call)
+
+
+def _alpha_news_sentiment(
+    company: CompanyIdentity,
+    settings: AppSettings,
+    alpha_vantage: AlphaVantageClient,
+) -> ToolResult:
+    if not settings.velox_demo_force_alpha_news_failure:
+        return alpha_vantage.news_sentiment(company.ticker)
+    return ToolResult.failure(
+        tool_name="alpha_vantage.news_sentiment",
+        source="Alpha Vantage NEWS_SENTIMENT",
+        started_at=datetime.now(UTC),
+        error="Demo mode forced Alpha Vantage news failure to exercise retry and Finnhub fallback.",
+        failure_category=FailureCategory.RECOVERABLE,
+    )
 
 
 def _fallback_records(tool_results: list[ToolResult]) -> list[FallbackRecord]:

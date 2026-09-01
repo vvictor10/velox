@@ -48,6 +48,7 @@ class AppSettings(BaseModel):
     alpha_vantage_live_enabled: bool = False
     alpha_vantage_min_seconds_between_calls: float = Field(default=1.1, ge=0)
     alpha_vantage_daily_request_budget: int = Field(default=25, ge=0)
+    velox_demo_force_alpha_news_failure: bool = False
     finnhub_live_enabled: bool = True
     sec_live_enabled: bool = True
     workflow_version: str = "0.1.0"
@@ -137,6 +138,7 @@ class AppSettings(BaseModel):
             "alpha_vantage_configured": _has_secret(self.alpha_vantage_api_key),
             "alpha_vantage_live_enabled": self.alpha_vantage_live_enabled,
             "alpha_vantage_daily_request_budget": self.alpha_vantage_daily_request_budget,
+            "demo_force_alpha_news_failure": self.velox_demo_force_alpha_news_failure,
             "finnhub_configured": _has_secret(self.finnhub_api_key),
             "finnhub_live_enabled": self.finnhub_live_enabled,
             "sec_live_enabled": self.sec_live_enabled,
@@ -200,6 +202,10 @@ def load_settings(env_file: str | Path = ".env") -> AppSettings:
         ),
         alpha_vantage_daily_request_budget=int(
             get("ALPHA_VANTAGE_DAILY_REQUEST_BUDGET", "25") or "25"
+        ),
+        velox_demo_force_alpha_news_failure=_bool_from_value(
+            get("VELOX_DEMO_FORCE_ALPHA_NEWS_FAILURE"),
+            default=False,
         ),
         finnhub_live_enabled=_bool_from_value(get("FINNHUB_LIVE_ENABLED"), default=True),
         sec_live_enabled=_bool_from_value(get("SEC_LIVE_ENABLED"), default=True),

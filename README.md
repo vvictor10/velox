@@ -35,3 +35,13 @@ Before the first run, refresh the local ticker cache if `data/static/company_tic
 ```bash
 .venv/bin/python scripts/refresh_tickers.py
 ```
+
+## Demo Failure Path
+
+To demonstrate visible tool failure and fallback behavior without waiting for a real provider outage, set this optional flag in `.env`:
+
+```bash
+VELOX_DEMO_FORCE_ALPHA_NEWS_FAILURE=true
+```
+
+With Finnhub enabled, Velox records the forced Alpha Vantage news failure, retries it, falls back to Finnhub company news when available, and surfaces the degraded path in progress, warnings, telemetry, and the tool ledger.

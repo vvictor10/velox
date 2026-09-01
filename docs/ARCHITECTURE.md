@@ -121,8 +121,8 @@ LangSmith experiment results should be used during model selection to compare Ne
 7. `analyze_risks`: generate risk flags and watch items using the evidence pack plus news-theme and delta outputs.
 8. `draft_brief`: assemble the structured earnings preview.
 9. `review_brief`: check for unsupported claims, stale data, missing sources, schema problems, and safety issues.
-10. `await_approval`: pause before saving/exporting.
-11. `save_memory`: after approval, save to Mem0 and local JSON snapshot.
+10. `await_approval`: show the Human Review Gate and pause before saving/exporting.
+11. `save_memory`: after explicit user approval, save to Mem0 and local JSON snapshot.
 12. `manage_memory_limit`: if 10 ticker reports are already saved, ask the user to clear older reports before saving.
 
 The orchestrator should run independent work concurrently where possible. Market data, company context, news, and prior-report lookup can run in parallel. After evidence assembly, news-theme analysis and delta analysis can also run in parallel. Risk analysis intentionally runs after those two because it benefits from both outputs.
@@ -265,6 +265,7 @@ Common cases:
 |---|---|---|
 | Alpha Vantage timeout | `recoverable` | Retry once; use Finnhub fallback when configured; otherwise degrade if minimum evidence passes. |
 | Alpha Vantage quota/rate limit | `recoverable` then `degraded_continuable` | Retry only if appropriate; otherwise fallback or continue with warning. |
+| Demo-forced Alpha Vantage news failure | `recoverable` | Set `VELOX_DEMO_FORCE_ALPHA_NEWS_FAILURE=true` to exercise retry, fallback, warning, and telemetry paths without depending on a real outage. |
 | Empty news result | `degraded_continuable` | Continue with `no recent news found` or `news unavailable` warning. |
 | SEC company identity missing | `non_recoverable` | Ask user to reselect ticker or stop. |
 | SEC recent filings unavailable but identity exists | `degraded_continuable` | Continue if earnings/news/company identity are sufficient; disclose gap. |
@@ -436,4 +437,4 @@ Build the app in an order that validates foundational blocks before UI polish or
 | 6. Mem0 memory | Prior report lookup, delta, approved upsert save, and local JSON mirror work for one ticker. | Mem0 lookup failure is marked `lookup_failed`; save failure is visible; no duplicate version per ticker/CIK. |
 | 7. Streamlit UI | Local typeahead, progress timeline, evidence tables, cited report, reviewer findings, and approval button work. | Warnings, retries, stale/missing data, and memory failures are visible in the UI. |
 | 8. Tests and demo path | Known tickers produce useful reports with citations and telemetry. | Intentional failure path proves no silent fallback and reviewer catches unsupported claims. |
-| 9. Polish and submission | Sample briefs, final writeup, Mermaid exports, and demo video are ready. | All reviewer-facing `TODO:` items are resolved or removed. |
+| 9. Polish and submission | Sample briefs, final writeup, Mermaid exports, and demo video are ready. | Reviewer-facing files contain only finalized submission content. |

@@ -24,7 +24,7 @@ Velox is a learning prototype. It is not a brokerage, advisor, trading system, p
 | What can it actually do? | Search U.S. ticker symbols locally, look up public earnings data, retrieve public company facts or recent filing metadata, fetch recent market/company context, search or ingest recent news headlines, compare against prior memory, and save approved report memory. External research is read-only; saving final memory requires human approval. |
 | What does it need to remember? | It remembers up to 10 saved ticker reports, including ticker, company, report timestamp, key thesis, risks, watch items, sources, and missing-data notes. Saved memory should be bounded, timestamped, reviewable, and clearable by the user. |
 | What should it never do? | It should never place trades, give definitive buy/sell instructions, guarantee earnings outcomes, hide missing data, fabricate citations, access personal finance accounts, or present educational research as personalized financial advice. |
-| Human-in-the-loop | The user reviews the final brief and reviewer warnings before saving. The user can approve, reject, or rerun with a revised ticker; write actions do not happen automatically. |
+| Human-in-the-loop | The app ends each successful run at a Human Review Gate. The user reviews the brief, sources, warnings, and reviewer findings before approving memory save. The user can approve, reject by doing nothing, or rerun with a revised ticker; write actions do not happen automatically. |
 | What happens when something breaks? | If a tool fails, the agent retries once, falls back to a simpler source or saved report data when available, and clearly marks the missing or stale field in both the UI and the brief. If ticker validation fails, it stops and asks for a corrected ticker. |
 | How do you know it worked? | It produces usable earnings preview briefs for supported U.S. tickers in under 5 minutes each, includes source labels/links and risk flags, shows missing-data warnings when needed, and avoids unsupported investment recommendations. |
 
@@ -53,7 +53,7 @@ Velox is designed to make the hard parts of agentic systems visible in both the 
 | Control flow | The product must show the agent moving through a multi-step research workflow rather than returning one opaque response. | The UI shows each step as completed, skipped, retried, failed, or waiting for approval. |
 | State | The product must carry structured state across steps, including selected ticker, evidence, tool results, memory, draft brief, reviewer findings, missing fields, and approval status. | The final brief and tool log show how earlier steps affect later sections, especially delta and missing-data sections. |
 | Tool failure | The product must handle failed tools explicitly. Silent fallback is not allowed. | The demo includes one intentional failure path and shows missing-data or stale-data warnings. |
-| Human boundary | The product may research and draft autonomously, but write actions require human approval. | The UI pauses before saving memory or writing a report snapshot. |
+| Human boundary | The product may research, analyze, draft, and review autonomously, but durable write actions require human approval. | The UI shows a Human Review Gate and pauses before saving Mem0 memory or writing a report snapshot. |
 
 ## Memory Requirements
 

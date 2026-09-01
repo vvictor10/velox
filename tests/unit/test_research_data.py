@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from velox.config import AppSettings
 from velox.models.company import CompanyIdentity
 from velox.models.telemetry import FailureCategory
 from velox.models.tool_result import ToolResult, ToolStatus
@@ -10,7 +11,7 @@ from velox.providers.normalization import (
     normalize_earnings_snapshot,
     normalize_news_snapshot,
 )
-from velox.providers.research_data import PublicDataBundle
+from velox.providers.research_data import PublicDataBundle, _alpha_news_sentiment
 
 
 def test_public_data_bundle_minimum_evidence_with_finnhub_and_sec() -> None:
@@ -82,3 +83,15 @@ def test_public_data_bundle_carries_retry_and_fallback_records() -> None:
 
     assert bundle.retry_records[0].user_message == "Retrying news fetch."
     assert bundle.fallback_records[0].fallback_tool_name == "finnhub.company_news"
+
+
+def test_demo_flag_forces_alpha_news_recoverable_failure() -> None:
+    company = CompanyIdentity(ticker="AAPL", company_name="Apple Inc.", exchange="Nasdaq", cik="320193")
+    settings = AppSettings(velox_demo_force_alpha_news_failure=True)
+
+    result = _alpha_news_sentiment(company, settings, alpha_vantage=None)  # type: ignore[arg-type]
+
+    assert result.tool_name == "alpha_vantage.news_sentiment"
+    assert result.status == ToolStatus.FAILED
+    assert result.failure_category == FailureCategory.RECOVERABLE
+    assert "Demo mode forced" in (result.error or "")

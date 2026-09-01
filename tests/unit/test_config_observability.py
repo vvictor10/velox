@@ -40,6 +40,42 @@ def test_load_settings_keeps_langsmith_optional(tmp_path: Path) -> None:
     assert check_by_name["LangSmith"].status == "optional_missing"
 
 
+def test_startup_checks_identify_missing_required_and_optional_keys(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("")
+
+    settings = load_settings(env_file)
+    check_by_name = {check.name: check for check in settings.startup_checks()}
+
+    assert check_by_name["LLM provider"].status == "missing"
+    assert check_by_name["SEC user agent"].status == "missing"
+    assert check_by_name["Mem0"].status == "missing"
+    assert check_by_name["Finnhub"].status == "missing"
+    assert check_by_name["Alpha Vantage"].status == "optional_missing"
+    assert check_by_name["LangSmith"].status == "optional_missing"
+
+
+def test_startup_checks_accept_core_keys_without_optional_alpha_or_langsmith(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        """FIREWORKS_API_KEY=fireworks-test
+SEC_USER_AGENT=Velox test@example.com
+MEM0_API_KEY=mem0-test
+FINNHUB_API_KEY=finnhub-test
+"""
+    )
+
+    settings = load_settings(env_file)
+    check_by_name = {check.name: check for check in settings.startup_checks()}
+
+    assert check_by_name["LLM provider"].status == "available"
+    assert check_by_name["SEC user agent"].status == "available"
+    assert check_by_name["Mem0"].status == "available"
+    assert check_by_name["Finnhub"].status == "available"
+    assert check_by_name["Alpha Vantage"].status == "optional_missing"
+    assert check_by_name["LangSmith"].status == "optional_missing"
+
+
 def test_load_settings_can_enable_alpha_vantage_live(tmp_path: Path) -> None:
     env_file = tmp_path / ".env"
     env_file.write_text(
@@ -54,6 +90,16 @@ ALPHA_VANTAGE_DAILY_REQUEST_BUDGET=7
     assert settings.alpha_vantage_live_enabled is True
     assert settings.alpha_vantage_min_seconds_between_calls == 2.5
     assert settings.alpha_vantage_daily_request_budget == 7
+
+
+def test_load_settings_can_enable_demo_failure_flag(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("VELOX_DEMO_FORCE_ALPHA_NEWS_FAILURE=true\n")
+
+    settings = load_settings(env_file)
+
+    assert settings.velox_demo_force_alpha_news_failure is True
+    assert settings.public_trace_metadata()["demo_force_alpha_news_failure"] is True
 
 
 def test_traceable_step_noops_when_langsmith_disabled(tmp_path: Path) -> None:

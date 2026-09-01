@@ -630,9 +630,15 @@ def main() -> None:
 
         save_result = _last_save_result(state)
         if state.approval_status == ApprovalStatus.APPROVED and save_result and save_result.status == ToolStatus.SUCCESS:
+            st.markdown("#### Human Review Gate")
             st.success("Approved report saved to memory.")
             return
 
+        st.markdown("#### Human Review Gate")
+        st.caption(
+            "The agent can research, draft, and review on its own, but it cannot save report memory "
+            "until you approve the reviewed brief."
+        )
         can_save = (
             state.status in {RunStatus.WAITING_FOR_APPROVAL, RunStatus.COMPLETED_WITH_WARNINGS}
             and state.brief is not None
