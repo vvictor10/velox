@@ -1,6 +1,6 @@
 # Agent Flow: Velox Earnings Research Run
 
-The canonical Mermaid source for this flow lives in [agent-flow.mmd](/Users/vvictor/Personal/Projects/AI%20Projects/velox/docs/agent-flow.mmd).
+The canonical Mermaid source for this flow lives in [agent-flow.mmd](agent-flow.mmd).
 
 This flow focuses on the runtime path from ticker selection to reviewed report production. It highlights state updates, tool retries, degraded continuation, reviewer repair/revision loops, interrupts, and the Human Review Gate.
 
