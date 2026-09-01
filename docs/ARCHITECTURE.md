@@ -127,6 +127,19 @@ LangSmith experiment results should be used during model selection to compare Ne
 
 The current implementation runs these stages in a deterministic sequence for debuggability and demo reliability. Independent provider calls and the news-theme/delta analysis pair are clean candidates for future parallelization; risk analysis intentionally stays after those outputs because it benefits from both.
 
+## Submission Scope And Future Enhancements
+
+The submission MVP prioritizes a reliable, inspectable agentic loop over broader production hardening. The implemented path covers stateful orchestration, evidence normalization, visible tool failure, structured LLM outputs, reviewer repair/revision behavior, human approval before writes, memory save/retrieval, local telemetry, and optional LangSmith tracing.
+
+Deferred enhancements are documented rather than hidden:
+
+- Graph concurrency for independent provider calls and the news-theme/delta analysis pair.
+- Durable checkpoint/resume for interrupted runs beyond current session state and idempotent save safeguards.
+- Timeout and run-budget telemetry for cancelled or skipped nodes.
+- In-app controls for clearing old reports when the 10-company memory cap is reached.
+- Saved-report fallback evidence with explicit stale-data labels and original report timestamps.
+- Hosted LangSmith datasets, trajectory evals, and LLM-as-judge qualitative evals.
+
 ## Earnings And News Data Contract
 
 Earnings and news are core evidence sources, not decorative enrichments. Velox should treat them as first-class tool outputs with source labels, timestamps, freshness, and failure handling.

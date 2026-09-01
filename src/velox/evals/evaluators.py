@@ -37,6 +37,7 @@ def evaluate_state(case_name: str, state: RunState) -> EvalSuiteResult:
         eval_required_report_sections(state),
         eval_valid_citations(state),
         eval_warning_disclosure(state),
+        eval_no_silent_fallback(state),
         eval_no_investment_advice(state),
         eval_approval_boundary(state),
         eval_llm_trace_spans(state),
@@ -99,6 +100,32 @@ def eval_warning_disclosure(state: RunState) -> EvalResult:
         passed=not missing,
         score=1.0 if not missing else 0.0,
         details=f"missing={missing}",
+    )
+
+
+def eval_no_silent_fallback(state: RunState) -> EvalResult:
+    if not state.fallback_records:
+        return EvalResult(name="no_silent_fallback", passed=True, score=1.0, details="no fallbacks")
+
+    visible_parts = [warning.message.lower() for warning in [*state.warnings, *state.evidence_pack.warnings]]
+    visible_parts.extend(result.fallback_reason.lower() for result in state.tool_results if result.fallback_reason)
+    visible_parts.extend(result.error.lower() for result in state.tool_results if result.error)
+    if state.telemetry:
+        visible_parts.extend(span.message.lower() for span in state.telemetry.spans if span.message)
+    visible_text = "\n".join(visible_parts)
+    missing = [
+        record.fallback_tool_name
+        for record in state.fallback_records
+        if record.fallback_tool_name.lower() not in visible_text
+        and record.primary_tool_name.lower() not in visible_text
+        and record.reason.lower() not in visible_text
+        and record.user_message.lower() not in visible_text
+    ]
+    return EvalResult(
+        name="no_silent_fallback",
+        passed=not missing,
+        score=1.0 if not missing else 0.0,
+        details=f"undisclosed_fallbacks={missing}",
     )
 
 

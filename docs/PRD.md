@@ -40,7 +40,7 @@ Velox does not require a conversational UI. The application uses a focused web f
 6. The user can inspect run telemetry showing which agents and tools took the most time.
 7. The user reviews the final brief, reviewer warnings, missing-data notes, and delta section.
 8. The user approves saving the result to memory and a local report snapshot.
-9. If the user has already saved 10 tickers, the app asks them to clear one or more older reports before saving a new ticker.
+9. If the user has already saved 10 tickers, the memory layer blocks additional new-company saves until older saved records are cleared outside the main run path.
 
 The app should be shippable from GitHub. A reviewer should be able to copy `.env.example` to `.env`, add API keys, install dependencies, and run the app locally. Missing optional keys should degrade gracefully with clear UI warnings rather than blocking the entire application.
 
@@ -59,9 +59,9 @@ Velox is designed to make the hard parts of agentic systems visible in both the 
 
 Velox stores only project-owned earnings reports that the user explicitly approves. Each saved report includes the ticker, company name, report timestamp, source timestamps, thesis summary, risk summary, watch items, missing-data notes, and reviewer status.
 
-The application stores up to 10 tickers in memory. When the limit is reached, Velox shows the saved report list sorted by timestamp and asks the user to clear older reports before saving a new ticker. Clearing memory is a human-approved action.
+The application stores up to 10 tickers in memory. When the limit is reached, Velox prevents additional new-company saves and surfaces the limit clearly rather than silently overwriting an existing memory.
 
-Saved reports can support delta analysis and fallback behavior, but they must never be presented as fresh data. Whenever saved report data is used because a live tool failed or returned no result, Velox must label it with the original report timestamp and include a stale-data warning in the tool log and final brief.
+Saved reports support delta analysis against the last approved report. Saved report data must never be presented as fresh data. If a future version uses saved reports as fallback evidence because a live tool failed or returned no result, Velox must label the original report timestamp and include a stale-data warning in the tool log and final brief.
 
 ## Data and Safety Boundaries
 
@@ -106,6 +106,17 @@ Each generated brief should include:
 - Tool failures produce graceful missing-data or stale-data notes rather than crashes, hallucinations, or silent fallbacks.
 - Reviewer catches unsupported claims or safety-boundary issues.
 - Final output remains educational and never gives direct trading instructions.
+
+## Future Enhancements
+
+These are intentionally out of the submission MVP but are documented because they are natural next steps for a stronger production agent:
+
+- Run independent provider calls concurrently, and run news-theme and delta analysis concurrently before risk analysis.
+- Add durable graph checkpoint/resume for interrupted runs beyond the current state preservation and idempotent save safeguards.
+- Add timeout and run-budget telemetry for cancelled or skipped nodes.
+- Add an in-app clear-old-reports flow for managing the 10-company saved-memory cap.
+- Add saved-report fallback evidence with explicit stale-data labels and original report timestamps.
+- Add hosted LangSmith datasets and trajectory/LLM-as-judge evals for deeper regression testing.
 
 ## Submission Deliverables
 

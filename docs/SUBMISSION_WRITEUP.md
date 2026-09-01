@@ -103,3 +103,7 @@ The demo should show:
 6. Approve-and-save to Mem0.
 7. Rerun the same ticker to show prior approved memory and delta analysis.
 8. Optional forced Alpha Vantage news failure to show retry/fallback transparency.
+
+## Future Enhancements
+
+The submission MVP intentionally keeps a few production-hardening ideas out of scope: graph concurrency, durable checkpoint/resume, timeout/run-budget telemetry, in-app saved-memory management, saved-report fallback evidence with stale-data timestamps, hosted LangSmith datasets, and LLM-as-judge qualitative evals.
