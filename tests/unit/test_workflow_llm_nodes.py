@@ -39,6 +39,8 @@ def test_research_graph_reaches_approval_after_reviewer_pass(
     assert output.brief is not None
     assert output.brief.model_ids["brief_drafter"] == "accounts/fireworks/models/gpt-oss-120b"
     assert output.reviewer_result and output.reviewer_result.passed is True
+    assert output.quality_assessment is not None
+    assert output.quality_assessment.overall_score > 0
     assert output.telemetry
     assert output.telemetry.final_status == "waiting_for_approval"
     assert {span.name for span in output.telemetry.spans} >= {
@@ -47,6 +49,7 @@ def test_research_graph_reaches_approval_after_reviewer_pass(
         "llm.risk",
         "llm.brief_drafter",
         "llm.reviewer",
+        "llm.quality_judge",
     }
 
 
@@ -61,6 +64,9 @@ def test_research_graph_streams_progress_updates(monkeypatch: pytest.MonkeyPatch
         update.progress_text for update in updates
     }
     assert "Finding earnings-relevant news themes." in {
+        update.progress_text for update in updates
+    }
+    assert "Checking report quality before human review." in {
         update.progress_text for update in updates
     }
 
@@ -230,6 +236,7 @@ def _settings() -> AppSettings:
         velox_risk_model="accounts/fireworks/models/gpt-oss-120b",
         velox_brief_model="accounts/fireworks/models/gpt-oss-120b",
         velox_reviewer_model="openai/gpt-oss-120b",
+        velox_quality_judge_model="openai/gpt-oss-120b",
     )
 
 
@@ -477,6 +484,44 @@ def _output_for_prompt(prompt_name: str, reviewer_passes: bool) -> dict[str, Any
                 }
             ],
             "revision_instructions": [] if reviewer_passes else ["Add citations before approval."],
+        },
+        "quality_judge": {
+            "overall_score": 0.84,
+            "confidence_label": "Usable With Caveats",
+            "summary": "The brief is grounded and useful, with minor data coverage caveats.",
+            "factors": [
+                {
+                    "name": "evidence_support",
+                    "score": 0.9,
+                    "rationale": "Main claims use supplied evidence IDs.",
+                },
+                {
+                    "name": "ticker_relevance",
+                    "score": 0.85,
+                    "rationale": "The report stays focused on the selected ticker.",
+                },
+                {
+                    "name": "risk_specificity",
+                    "score": 0.8,
+                    "rationale": "Risks include a watch item.",
+                },
+                {
+                    "name": "missing_data_handling",
+                    "score": 0.8,
+                    "rationale": "Warnings are visible when present.",
+                },
+                {
+                    "name": "report_clarity",
+                    "score": 0.85,
+                    "rationale": "The report is concise.",
+                },
+                {
+                    "name": "safety_boundary",
+                    "score": 1.0,
+                    "rationale": "No recommendations or price targets are present.",
+                },
+            ],
+            "improvement_notes": ["Add richer revenue context when available."],
         },
     }
     return outputs[prompt_name]

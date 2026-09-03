@@ -14,11 +14,14 @@ from velox.analysis.schemas import (
     BriefOutput,
     DeltaOutput,
     NewsThemeOutput,
+    QualityJudgeOutput,
     ReviewerOutput,
     RiskOutput,
 )
 from velox.config import AppSettings
+from velox.evals.evaluators import evaluate_state
 from velox.models.evidence import EvidenceRecord
+from velox.models.quality import QualityAssessment, QualityFactor
 from velox.models.report import (
     ApprovalStatus,
     DeltaFinding,
@@ -483,6 +486,69 @@ def make_reviewer_node(settings: AppSettings):
     return reviewer_node
 
 
+def make_quality_judge_node(settings: AppSettings):
+    def quality_judge_node(state: RunState | dict) -> RunState:
+        current = ensure_state(state)
+        if current.brief is None:
+            return current.model_copy(
+                update={
+                    "quality_assessment": QualityAssessment(
+                        overall_score=0.0,
+                        judge_score=0.0,
+                        confidence_label="Unavailable",
+                        summary="Quality assessment was skipped because no report brief was produced.",
+                        unavailable_reason="brief missing",
+                    )
+                }
+            )
+        prompt = load_prompt("quality_judge")
+        model_id = settings.velox_quality_judge_model or settings.velox_reviewer_model
+        result = _call_llm_with_retry(
+            current,
+            settings,
+            model_id=model_id,
+            prompt=prompt,
+            user_payload=_quality_judge_payload(current),
+            output_schema=QualityJudgeOutput,
+        )
+        current = _state_with_llm_telemetry(current, result)
+        if not result.schema_valid or result.output is None:
+            return current.model_copy(
+                update={
+                    "quality_assessment": QualityAssessment(
+                        overall_score=0.0,
+                        judge_score=0.0,
+                        confidence_label="Unavailable",
+                        summary="Quality assessment was unavailable because the judge output was invalid.",
+                        judge_model_id=result.model_id,
+                        prompt_version=prompt.version,
+                        unavailable_reason=result.error or "invalid judge output",
+                    )
+                }
+            ).touch(status=_status_after_quality_judge(current))
+        judge_output = QualityJudgeOutput.model_validate(result.output)
+        assessment = _quality_assessment_from_judge(
+            state=current,
+            judge_output=judge_output,
+            model_id=result.model_id,
+            prompt_version=prompt.version,
+        )
+        if current.brief is not None:
+            current.brief.prompt_versions[prompt.name] = prompt.version
+            current.brief.model_ids[prompt.name] = result.model_id
+        return current.model_copy(update={"quality_assessment": assessment}).touch(
+            status=_status_after_quality_judge(current)
+        )
+
+    return quality_judge_node
+
+
+def _status_after_quality_judge(state: RunState) -> RunStatus:
+    if state.reviewer_result and state.reviewer_result.passed:
+        return RunStatus.WAITING_FOR_APPROVAL
+    return state.status
+
+
 def _can_auto_revise_brief(reviewer_result: ReviewerResult) -> bool:
     if not reviewer_result.findings:
         return False
@@ -649,6 +715,7 @@ def _max_tokens_for_prompt(prompt_name: str) -> int:
         "risk": 1600,
         "brief_drafter": 2600,
         "reviewer": 1400,
+        "quality_judge": 1600,
     }.get(prompt_name, 1200)
 
 
@@ -729,6 +796,189 @@ def _reviewer_payload(state: RunState) -> dict[str, Any]:
         "tool_warnings": _warning_messages(state),
         "draft": state.brief.model_dump(mode="json") if state.brief else None,
     }
+
+
+def _quality_judge_payload(state: RunState) -> dict[str, Any]:
+    suite = evaluate_state("quality_judge_input", state)
+    return {
+        "ticker": state.selected_ticker,
+        "company_name": state.company.display_name if state.company else None,
+        "quality_factors_considered": [
+            {
+                "factor": "evidence_support",
+                "description": "Claims are tied to valid evidence IDs and avoid unsupported leaps.",
+            },
+            {
+                "factor": "ticker_relevance",
+                "description": "Developments and themes are about the selected ticker/company.",
+            },
+            {
+                "factor": "risk_specificity",
+                "description": "Risks are concrete, earnings-relevant, and include watch items.",
+            },
+            {
+                "factor": "missing_data_handling",
+                "description": "Missing, stale, failed, retried, or fallback data is disclosed clearly.",
+            },
+            {
+                "factor": "report_clarity",
+                "description": "The brief is concise, readable, and useful for earnings preparation.",
+            },
+            {
+                "factor": "safety_boundary",
+                "description": "The report avoids recommendations, price targets, guarantees, and suitability claims.",
+            },
+        ],
+        "brief": state.brief.model_dump(mode="json") if state.brief else None,
+        "evidence": _analysis_evidence_payloads(state, max_payload_chars=900),
+        "news_themes": state.news_themes,
+        "delta_findings": [finding.model_dump() for finding in state.delta_findings],
+        "risk_findings": [finding.model_dump() for finding in state.risk_findings],
+        "reviewer_result": state.reviewer_result.model_dump(mode="json")
+        if state.reviewer_result
+        else None,
+        "deterministic_guardrails": [result.model_dump() for result in suite.results],
+        "run_factors": _quality_run_factors(state),
+        "warnings": _warning_messages(state),
+    }
+
+
+def _quality_assessment_from_judge(
+    *,
+    state: RunState,
+    judge_output: QualityJudgeOutput,
+    model_id: str,
+    prompt_version: str,
+) -> QualityAssessment:
+    deterministic_factor = _deterministic_quality_factor(state)
+    run_factors = _quality_run_factors(state)
+    run_factor_models = [
+        QualityFactor(
+            name=factor["name"],
+            score=float(factor["score"]),
+            rationale=factor["rationale"],
+        )
+        for factor in [deterministic_factor, *run_factors]
+    ]
+    judge_factors = [
+        QualityFactor(
+            name=factor.name,
+            score=factor.score,
+            rationale=factor.rationale,
+        )
+        for factor in judge_output.factors
+    ]
+    adjustment_score = sum(factor.score for factor in run_factor_models) / len(run_factor_models)
+    overall_score = round((judge_output.overall_score * 0.7) + (adjustment_score * 0.3), 2)
+    return QualityAssessment(
+        overall_score=overall_score,
+        judge_score=round(judge_output.overall_score, 2),
+        confidence_label=_quality_label(overall_score),
+        summary=judge_output.summary,
+        factors=[*judge_factors, *run_factor_models],
+        improvement_notes=judge_output.improvement_notes,
+        judge_model_id=model_id,
+        prompt_version=prompt_version,
+    )
+
+
+def _deterministic_quality_factor(state: RunState) -> dict[str, object]:
+    suite = evaluate_state("quality_factor", state)
+    passed = sum(1 for result in suite.results if result.passed)
+    total = len(suite.results) or 1
+    return {
+        "name": "deterministic_guardrail_pass_rate",
+        "score": round(passed / total, 2),
+        "rationale": f"{passed} of {total} deterministic guardrail checks passed.",
+    }
+
+
+def _quality_run_factors(state: RunState) -> list[dict[str, object]]:
+    return [
+        _data_coverage_factor(state),
+        _recovery_transparency_factor(state),
+        _reviewer_status_factor(state),
+        _memory_context_factor(state),
+    ]
+
+
+def _data_coverage_factor(state: RunState) -> dict[str, object]:
+    evidence_types = {record.evidence_type.value for record in state.evidence_pack.records}
+    expected = {"earnings", "sec_filing", "company_fact", "news"}
+    score = len(evidence_types.intersection(expected)) / len(expected)
+    return {
+        "name": "data_coverage",
+        "score": round(score, 2),
+        "rationale": f"Evidence types present: {', '.join(sorted(evidence_types)) or 'none'}.",
+    }
+
+
+def _recovery_transparency_factor(state: RunState) -> dict[str, object]:
+    if not state.retry_records and not state.fallback_records:
+        return {
+            "name": "recovery_transparency",
+            "score": 1.0,
+            "rationale": "No retry or fallback events occurred.",
+        }
+    visible_messages = [
+        *(record.user_message for record in state.retry_records),
+        *(record.user_message for record in state.fallback_records),
+    ]
+    score = 1.0 if all(message for message in visible_messages) else 0.5
+    return {
+        "name": "recovery_transparency",
+        "score": score,
+        "rationale": (
+            f"{len(state.retry_records)} retries and {len(state.fallback_records)} fallbacks "
+            "were recorded with user-facing messages."
+        ),
+    }
+
+
+def _reviewer_status_factor(state: RunState) -> dict[str, object]:
+    passed = bool(state.reviewer_result and state.reviewer_result.passed)
+    findings = len(state.reviewer_result.findings) if state.reviewer_result else 0
+    return {
+        "name": "reviewer_status",
+        "score": 1.0 if passed else 0.0,
+        "rationale": f"Reviewer passed: {passed}; findings: {findings}.",
+    }
+
+
+def _memory_context_factor(state: RunState) -> dict[str, object]:
+    if state.prior_memory is None:
+        return {
+            "name": "memory_context",
+            "score": 0.75,
+            "rationale": "Prior report memory was not checked.",
+        }
+    if state.prior_memory.status == PriorReportStatus.FOUND:
+        return {
+            "name": "memory_context",
+            "score": 1.0,
+            "rationale": "Prior approved report memory was found and available for delta analysis.",
+        }
+    if state.prior_memory.status == PriorReportStatus.MISSING:
+        return {
+            "name": "memory_context",
+            "score": 0.85,
+            "rationale": "No prior approved report memory was found; delta comparison was correctly skipped.",
+        }
+    return {
+        "name": "memory_context",
+        "score": 0.6,
+        "rationale": "Prior report memory lookup failed, so comparison context was unavailable.",
+    }
+
+
+def _quality_label(score: float) -> str:
+    if score >= 0.9:
+        return "Strong"
+    if score >= 0.75:
+        return "Usable With Caveats"
+    if score >= 0.55:
+        return "Needs Review"
+    return "Weak"
 
 
 def _evidence_payload(record: EvidenceRecord, *, max_payload_chars: int) -> dict[str, Any]:

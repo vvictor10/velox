@@ -16,6 +16,7 @@ from velox.workflow.nodes import (
     make_delta_node,
     make_load_memory_node,
     make_news_theme_node,
+    make_quality_judge_node,
     make_reviewer_node,
     make_risk_node,
     minimum_evidence_gate_node,
@@ -67,6 +68,7 @@ def build_research_graph(settings: AppSettings):
     graph.add_node("risk_analysis", _traced_node("risk_analysis", make_risk_node(settings), settings))
     graph.add_node("brief_drafting", _traced_node("brief_drafting", make_brief_drafter_node(settings), settings))
     graph.add_node("review", _traced_node("review", make_reviewer_node(settings), settings))
+    graph.add_node("quality_assessment", _traced_node("quality_assessment", make_quality_judge_node(settings), settings))
 
     graph.set_entry_point("resolve_company_identity")
     graph.add_conditional_edges(
@@ -109,7 +111,12 @@ def build_research_graph(settings: AppSettings):
         _route_after_stop,
         {"continue": "review", "stop": END},
     )
-    graph.add_edge("review", END)
+    graph.add_conditional_edges(
+        "review",
+        _route_after_stop,
+        {"continue": "quality_assessment", "stop": END},
+    )
+    graph.add_edge("quality_assessment", END)
     return graph.compile()
 
 
@@ -176,6 +183,7 @@ def stream_research_graph(ticker: str, settings: AppSettings):
         ("risk_analysis", progress.ANALYZING_RISK, make_risk_node(settings)),
         ("brief_drafting", progress.DRAFTING_BRIEF, make_brief_drafter_node(settings)),
         ("review", progress.REVIEWING_BRIEF, make_reviewer_node(settings)),
+        ("quality_assessment", progress.ASSESSING_QUALITY, make_quality_judge_node(settings)),
     ]
 
     for name, progress_text, func in steps:

@@ -83,3 +83,17 @@ class ReviewerOutput(BaseModel):
     passed: bool
     findings: list[ReviewerFindingItem] = Field(default_factory=list)
     revision_instructions: list[str] = Field(default_factory=list)
+
+
+class QualityFactorItem(BaseModel):
+    name: str
+    score: float = Field(ge=0, le=1)
+    rationale: str
+
+
+class QualityJudgeOutput(BaseModel):
+    overall_score: float = Field(ge=0, le=1)
+    confidence_label: str
+    summary: str
+    factors: list[QualityFactorItem] = Field(min_length=1)
+    improvement_notes: list[str] = Field(default_factory=list)

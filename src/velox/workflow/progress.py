@@ -16,6 +16,7 @@ SKIPPING_DELTA_NO_MEMORY = "Skipping delta comparison because no prior approved 
 ANALYZING_RISK = "Identifying earnings-relevant risks and watch items."
 DRAFTING_BRIEF = "Drafting the cited earnings research brief."
 REVIEWING_BRIEF = "Reviewing citations, warnings, schema, and safety boundaries."
+ASSESSING_QUALITY = "Checking report quality before human review."
 REPAIRING_CITATIONS = "Repairing section citation metadata before reviewer retry."
 REVISING_BRIEF = "Revising the brief from reviewer feedback."
 REVIEW_FAILED = "Reviewer found issues that need revision before approval."

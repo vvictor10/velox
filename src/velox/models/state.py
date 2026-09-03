@@ -13,6 +13,7 @@ from velox.models.earnings import EarningsSnapshot
 from velox.models.evidence import EvidencePack
 from velox.models.failures import FallbackRecord, RetryRecord
 from velox.models.news import NewsSnapshot
+from velox.models.quality import QualityAssessment
 from velox.models.report import (
     ApprovalStatus,
     DeltaFinding,
@@ -57,6 +58,7 @@ class RunState(BaseModel):
     risk_findings: list[RiskFinding] = Field(default_factory=list)
     brief: EarningsBrief | None = None
     reviewer_result: ReviewerResult | None = None
+    quality_assessment: QualityAssessment | None = None
     approval_status: ApprovalStatus = ApprovalStatus.NOT_REQUESTED
     telemetry: RunTelemetry | None = None
     idempotency_keys: dict[str, str] = Field(default_factory=dict)

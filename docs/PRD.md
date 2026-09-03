@@ -38,9 +38,10 @@ Velox does not require a conversational UI. The application uses a focused web f
 4. The app shows progressive agent status and tool calls while the brief is generated.
 5. The app displays structured tables for facts, tool usage, risks, changes, and reviewer findings.
 6. The user can inspect run telemetry showing which agents and tools took the most time.
-7. The user reviews the final brief, reviewer warnings, missing-data notes, and delta section.
-8. The user approves saving the result to memory and a local report snapshot.
-9. If the user has already saved 10 tickers, the memory layer blocks additional new-company saves until older saved records are cleared outside the main run path.
+7. The user can inspect an Evals view that separates report-quality assessment from deterministic guardrail checks.
+8. The user reviews the final brief, reviewer warnings, missing-data notes, and delta section.
+9. The user approves saving the result to memory and a local report snapshot.
+10. If the user has already saved 10 tickers, the memory layer blocks additional new-company saves until older saved records are cleared outside the main run path.
 
 The app should be shippable from GitHub. A reviewer should be able to copy `.env.example` to `.env`, add API keys, install dependencies, and run the app locally. Missing optional keys should degrade gracefully with clear UI warnings rather than blocking the entire application.
 
@@ -116,7 +117,7 @@ These are intentionally out of the submission MVP but are documented because the
 - Add timeout and run-budget telemetry for cancelled or skipped nodes.
 - Add an in-app clear-old-reports flow for managing the 10-company saved-memory cap.
 - Add saved-report fallback evidence with explicit stale-data labels and original report timestamps.
-- Add hosted LangSmith datasets and trajectory/LLM-as-judge evals for deeper regression testing.
+- Add hosted LangSmith datasets and broader trajectory regression suites.
 
 ## Submission Deliverables
 

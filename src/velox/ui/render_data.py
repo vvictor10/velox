@@ -402,15 +402,79 @@ def recovery_event_rows(state: RunState) -> list[dict[str, Any]]:
     return clean_rows([*retry_rows, *fallback_rows])
 
 
+def quality_summary_rows(state: RunState) -> list[dict[str, Any]]:
+    assessment = state.quality_assessment
+    if assessment is None:
+        return []
+    if not assessment.available:
+        return clean_rows(
+            [
+                {
+                    "Overall Quality": "Unavailable",
+                    "Judge Score": "",
+                    "Quality Label": assessment.confidence_label,
+                    "Judge Model": assessment.judge_model_id or "",
+                    "Prompt Version": assessment.prompt_version or "",
+                    "Method": assessment.method,
+                    "Summary": assessment.summary,
+                    "Unavailable Reason": assessment.unavailable_reason or "",
+                }
+            ]
+        )
+    return clean_rows(
+        [
+            {
+                "Overall Quality": format_decimal(assessment.overall_score),
+                "Judge Score": format_decimal(assessment.judge_score),
+                "Quality Label": assessment.confidence_label,
+                "Judge Model": assessment.judge_model_id or "",
+                "Prompt Version": assessment.prompt_version or "",
+                "Method": assessment.method,
+                "Summary": compact_text(assessment.summary),
+            }
+        ]
+    )
+
+
+def quality_factor_rows(state: RunState) -> list[dict[str, Any]]:
+    assessment = state.quality_assessment
+    if assessment is None:
+        return []
+    return clean_rows(
+        [
+            {
+                "Factor": format_label(factor.name),
+                "Score": format_decimal(factor.score),
+                "Rationale": compact_text(factor.rationale),
+            }
+            for factor in assessment.factors
+        ]
+    )
+
+
+def quality_improvement_rows(state: RunState) -> list[dict[str, Any]]:
+    assessment = state.quality_assessment
+    if assessment is None:
+        return []
+    return clean_rows(
+        [
+            {
+                "Note": compact_text(note),
+            }
+            for note in assessment.improvement_notes
+        ]
+    )
+
+
 def eval_checklist_rows(state: RunState) -> list[dict[str, Any]]:
     suite = evaluate_state("current_ui_run", state)
     return clean_rows(
         [
             {
                 "Check": format_label(result.name),
-                "Result": "Pass" if result.passed else "Fail",
-                "Gate Score": f"{result.score:.2f}",
-                "Details": compact_text(result.details),
+                "Check Type": "Deterministic",
+                "Outcome": "Pass" if result.passed else "Fail",
+                "Evidence": compact_text(result.details),
             }
             for result in suite.results
         ]

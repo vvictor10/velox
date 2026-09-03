@@ -6,9 +6,11 @@ Velox uses a stateful agent workflow to turn a selected U.S. public-company tick
 
 ## Architecture Diagram
 
-- Overall architecture image: [velox-architecture.png](../assets/velox-architecture.png)
+- Current architecture image: [velox-architecture-v2.png](../assets/velox-architecture-v2.png)
+- Original architecture image for comparison: [velox-architecture.png](../assets/velox-architecture.png)
 - Runtime agent flow notes: [AGENT_FLOW.md](AGENT_FLOW.md)
-- Agentic workflow image: [velox-agentic-workflow.jpeg](../assets/velox-agentic-workflow.jpeg)
+- Current agentic workflow image: [velox-agentic-workflow-v2.png](../assets/velox-agentic-workflow-v2.png)
+- Original agentic workflow image for comparison: [velox-agentic-workflow.jpeg](../assets/velox-agentic-workflow.jpeg)
 
 Image exports and visual assets live under `/assets`. Mermaid source drafts are local-only working files under `docs/local/`.
 
@@ -76,7 +78,7 @@ Tracing should cover:
 - one parent trace per ticker research run.
 - graph node spans for evidence collection, evidence assembly, minimum evidence gate, analysis, drafting, review, approval wait, and memory save.
 - tool spans for local ticker lookup, SEC, Alpha Vantage, Finnhub fallback, Mem0 lookup, Mem0 save, and local snapshot export.
-- LLM spans for news theme analysis, delta analysis, risk analysis, brief drafting, and reviewer.
+- LLM spans for news theme analysis, delta analysis, risk analysis, brief drafting, reviewer, and report-quality judge.
 - decision spans for retry, fallback, degraded continuation, non-recoverable stop, and human approval boundary.
 
 Trace metadata should include:
@@ -100,7 +102,7 @@ Evaluator strategy:
 
 - deterministic code evaluators for schema validity, required sections, valid citation IDs, missing-data warnings, no buy/sell/hold advice, and approval-before-save.
 - trajectory evaluators for tool-use path correctness: expected tools called, retries/fallbacks disclosed, degraded continuation handled, and non-recoverable stops respected.
-- LLM-as-judge evaluators only for qualitative dimensions such as risk specificity, analyst-style clarity, and whether cited evidence reasonably supports interpretive language.
+- LLM-as-judge evaluator for qualitative dimensions such as evidence support, ticker relevance, risk specificity, missing-data handling, report clarity, and safety-boundary quality. The app labels this as report quality, not investment confidence.
 
 LangSmith experiment results should be used during model selection to compare Nebius and Fireworks candidates for each LLM substep. The final submitted configuration should pin provider, model, and prompt version per substep based on Velox fixture performance across accuracy, latency, and cost.
 
@@ -121,15 +123,16 @@ LangSmith experiment results should be used during model selection to compare Ne
 7. `analyze_risks`: generate risk flags and watch items using the evidence pack plus news-theme and delta outputs.
 8. `draft_brief`: assemble the structured earnings preview.
 9. `review_brief`: check for unsupported claims, stale data, missing sources, schema problems, and safety issues.
-10. `await_approval`: show the Human Review Gate and pause before saving/exporting.
-11. `save_memory`: after explicit user approval, save to Mem0 and local JSON snapshot.
-12. `manage_memory_limit`: if 10 ticker reports are already saved, ask the user to clear older reports before saving.
+10. `quality_assessment`: run a traced LLM-as-judge pass and combine it with deterministic guardrails and RunState telemetry to produce a report-quality score and factor table.
+11. `await_approval`: show the Human Review Gate and pause before saving/exporting.
+12. `save_memory`: after explicit user approval, save to Mem0 and local JSON snapshot.
+13. `manage_memory_limit`: if 10 ticker reports are already saved, ask the user to clear older reports before saving.
 
 The current implementation runs these stages in a deterministic sequence for debuggability and demo reliability. Independent provider calls and the news-theme/delta analysis pair are clean candidates for future parallelization; risk analysis intentionally stays after those outputs because it benefits from both.
 
 ## Submission Scope And Future Enhancements
 
-The submission MVP prioritizes a reliable, inspectable agentic loop over broader production hardening. The implemented path covers stateful orchestration, evidence normalization, visible tool failure, structured LLM outputs, reviewer repair/revision behavior, human approval before writes, memory save/retrieval, local telemetry, and optional LangSmith tracing.
+The submission MVP prioritizes a reliable, inspectable agentic loop over broader production hardening. The implemented path covers stateful orchestration, evidence normalization, visible tool failure, structured LLM outputs, reviewer repair/revision behavior, LLM-as-judge report-quality assessment, human approval before writes, memory save/retrieval, local telemetry, and optional LangSmith tracing.
 
 Deferred enhancements are documented rather than hidden:
 
@@ -138,7 +141,7 @@ Deferred enhancements are documented rather than hidden:
 - Timeout and run-budget telemetry for cancelled or skipped nodes.
 - In-app controls for clearing old reports when the 10-company memory cap is reached.
 - Saved-report fallback evidence with explicit stale-data labels and original report timestamps.
-- Hosted LangSmith datasets, trajectory evals, and LLM-as-judge qualitative evals.
+- Hosted LangSmith datasets and broader trajectory regression suites.
 
 ## Earnings And News Data Contract
 

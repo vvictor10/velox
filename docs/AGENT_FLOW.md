@@ -1,8 +1,8 @@
 # Agent Flow: Velox Earnings Research Run
 
-The editable Mermaid source for this flow is kept as a local-only working file under `docs/local/`. The reviewer-facing workflow image lives in [velox-agentic-workflow.jpeg](../assets/velox-agentic-workflow.jpeg).
+Reviewer-facing workflow images live in [velox-agentic-workflow.jpeg](../assets/velox-agentic-workflow.jpeg) and [velox-agentic-workflow-v2.png](../assets/velox-agentic-workflow-v2.png). Older Mermaid drafts are local-only working files under `docs/local/` and are not the source of truth for the current image assets.
 
-This flow focuses on the runtime path from ticker selection to reviewed report production. It highlights state updates, tool retries, degraded continuation, reviewer repair/revision loops, interrupts, and the Human Review Gate.
+This flow focuses on the runtime path from ticker selection to reviewed report production. It highlights state updates, tool retries, degraded continuation, reviewer repair/revision loops, report-quality assessment, interrupts, and the Human Review Gate.
 
 ## Runtime Sequence
 
@@ -17,8 +17,9 @@ This flow focuses on the runtime path from ticker selection to reviewed report p
 9. LLM agents produce news themes, delta findings, risks/watch items, and the draft brief using structured JSON.
 10. The reviewer checks citations, warning disclosure, schema, stale-data handling, unsupported claims, and safety boundaries.
 11. Repairable citation issues or content issues are routed through one automatic repair/revision attempt.
-12. If the reviewer passes, the run waits at the Human Review Gate.
-13. If the user approves, Velox saves the report to Mem0 and a local snapshot mirror. If the user does not approve, the run ends without a write action.
+12. If the reviewer passes, Velox runs an LLM-as-judge report-quality assessment and combines it with deterministic guardrails and RunState telemetry.
+13. The run waits at the Human Review Gate.
+14. If the user approves, Velox saves the report to Mem0 and a local snapshot mirror. If the user does not approve, the run ends without a write action.
 
 ## Agent Nodes
 
@@ -34,6 +35,7 @@ This flow focuses on the runtime path from ticker selection to reviewed report p
 | Risk Analyst Agent | Produces earnings-relevant risks and watch items from the evidence, themes, and delta findings. | Yes | `risk_findings`, `warnings`, `telemetry` |
 | Brief Drafter Agent | Creates the structured cited earnings preview brief. | Yes | `brief`, `warnings`, `telemetry` |
 | Reviewer Agent | Checks schema, citations, warning disclosure, stale-data handling, unsupported claims, and no-investment-advice boundaries. | Yes/checklist | `reviewer_result`, `approval_status`, `telemetry` |
+| Report Quality Judge | Scores the generated research artifact across evidence support, ticker relevance, risk specificity, missing-data handling, clarity, safety boundary, deterministic pass rate, data coverage, recovery transparency, reviewer status, and memory context. | Yes/eval | `quality_assessment`, `telemetry` |
 | Human Review Gate | Pauses before durable memory writes. | Human | `approval_status` |
 | Memory save | Saves only approved reports to Mem0 and local snapshot mirror. | No | `prior_memory`, `tool_results`, `approval_status` |
 
@@ -60,6 +62,7 @@ The submitted configuration pins each LLM-backed node to a specific provider/mod
 | Risk analysis | `accounts/fireworks/models/gpt-oss-120b` |
 | Brief drafting | `accounts/fireworks/models/gpt-oss-120b` |
 | Reviewer | `openai/gpt-oss-120b` |
+| Report quality judge | Uses `VELOX_QUALITY_JUDGE_MODEL`, or falls back to `VELOX_REVIEWER_MODEL` |
 
 Prompt files:
 
@@ -68,3 +71,4 @@ Prompt files:
 - `src/velox/prompts/risk.md`
 - `src/velox/prompts/brief_drafter.md`
 - `src/velox/prompts/reviewer.md`
+- `src/velox/prompts/quality_judge.md`

@@ -6,6 +6,7 @@ from velox.models.company import CompanyIdentity
 from velox.models.earnings import EarningsEvent, EarningsSnapshot, HistoricalEarningsQuarter
 from velox.models.evidence import EvidencePack, EvidenceRecord, EvidenceType
 from velox.models.failures import FallbackRecord, RetryRecord
+from velox.models.quality import QualityAssessment, QualityFactor
 from velox.models.state import RunState, RunStatus
 from velox.models.telemetry import FailureCategory, RunTelemetry, SpanKind, TelemetrySpan
 from velox.ui import render_data
@@ -352,5 +353,42 @@ def test_eval_checklist_rows_expose_system_eval_results() -> None:
 
     assert rows
     assert rows[0]["Check"] == "Final Status Known"
-    assert "Result" in rows[0]
-    assert "Gate Score" in rows[0]
+    assert rows[0]["Check Type"] == "Deterministic"
+    assert "Outcome" in rows[0]
+    assert "Evidence" in rows[0]
+
+
+def test_quality_rows_show_summary_and_explicit_factors() -> None:
+    state = RunState(
+        quality_assessment=QualityAssessment(
+            overall_score=0.86,
+            judge_score=0.84,
+            confidence_label="Usable With Caveats",
+            summary="Grounded report with minor data caveats.",
+            judge_model_id="openai/gpt-oss-120b",
+            prompt_version="0.1.0",
+            factors=[
+                QualityFactor(
+                    name="evidence_support",
+                    score=0.9,
+                    rationale="Claims use supplied evidence IDs.",
+                ),
+                QualityFactor(
+                    name="recovery_transparency",
+                    score=1.0,
+                    rationale="Retry and fallback records were visible.",
+                ),
+            ],
+            improvement_notes=["Add richer revenue context when available."],
+        )
+    )
+
+    summary = render_data.quality_summary_rows(state)
+    factors = render_data.quality_factor_rows(state)
+    notes = render_data.quality_improvement_rows(state)
+
+    assert summary[0]["Overall Quality"] == "0.86"
+    assert summary[0]["Judge Score"] == "0.84"
+    assert summary[0]["Quality Label"] == "Usable With Caveats"
+    assert [row["Factor"] for row in factors] == ["Evidence Support", "Recovery Transparency"]
+    assert notes[0]["Note"] == "Add richer revenue context when available."

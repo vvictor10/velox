@@ -37,6 +37,7 @@ class AppSettings(BaseModel):
     velox_risk_model: str | None = None
     velox_brief_model: str | None = None
     velox_reviewer_model: str | None = None
+    velox_quality_judge_model: str | None = None
     mem0_api_key: SecretStr | None = None
     alpha_vantage_api_key: SecretStr | None = None
     finnhub_api_key: SecretStr | None = None
@@ -184,6 +185,7 @@ def load_settings(env_file: str | Path = ".env") -> AppSettings:
         velox_risk_model=_blank_to_none(get("VELOX_RISK_MODEL")),
         velox_brief_model=_blank_to_none(get("VELOX_BRIEF_MODEL")),
         velox_reviewer_model=_blank_to_none(get("VELOX_REVIEWER_MODEL")),
+        velox_quality_judge_model=_blank_to_none(get("VELOX_QUALITY_JUDGE_MODEL")),
         mem0_api_key=_secret_from_value(get("MEM0_API_KEY")),
         alpha_vantage_api_key=_secret_from_value(get("ALPHA_VANTAGE_API_KEY")),
         finnhub_api_key=_secret_from_value(get("FINNHUB_API_KEY")),

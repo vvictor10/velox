@@ -18,11 +18,15 @@ Velox is a Week 3 agentic AI project for generating source-grounded earnings pre
 
 ### System Architecture
 
-![Velox architecture overview](assets/velox-architecture.png)
+![Velox architecture overview v2](assets/velox-architecture-v2.png)
+
+Original architecture diagram for comparison: [velox-architecture.png](assets/velox-architecture.png)
 
 ### Agentic Workflow
 
-![Velox agentic workflow](assets/velox-agentic-workflow.jpeg)
+![Velox agentic workflow v2](assets/velox-agentic-workflow-v2.png)
+
+Original agentic workflow diagram for comparison: [velox-agentic-workflow.jpeg](assets/velox-agentic-workflow.jpeg)
 
 ## Current Scope
 
@@ -93,6 +97,8 @@ LANGSMITH_API_KEY=your_key_here
 LANGSMITH_TRACING=true
 LANGSMITH_PROJECT=velox
 ```
+
+`VELOX_QUALITY_JUDGE_MODEL` is optional. If it is blank, Velox uses `VELOX_REVIEWER_MODEL` for the report-quality judge.
 
 ### 4. Refresh Local Ticker Cache
 

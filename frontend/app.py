@@ -160,6 +160,9 @@ TEXT_COLUMNS = {
     "URL",
     "Evidence",
     "Citations",
+    "Method",
+    "Note",
+    "Unavailable Reason",
 }
 
 TABLE_HEADER_HEIGHT = 48
@@ -465,7 +468,7 @@ def _render_report(state: RunState, settings: AppSettings) -> None:
             metric_items
         )
 
-    tabs = st.tabs(["Brief", "Earnings", "Developments", "Risks", "Sources", "Telemetry"])
+    tabs = st.tabs(["Brief", "Earnings", "Developments", "Risks", "Sources", "Telemetry", "Evals"])
 
     with tabs[0]:
         if state.brief:
@@ -582,30 +585,15 @@ def _render_report(state: RunState, settings: AppSettings) -> None:
             st.info("No source table is available.")
 
     with tabs[5]:
-        st.markdown("#### Observability")
-        st.caption(
-            "Run instrumentation. LangSmith stores external traces when enabled; local telemetry is shown below either way. "
-            "LangSmith tracing: "
-            f"{'Enabled' if settings.langsmith_enabled else 'Disabled'} | "
-            f"Project: {settings.langsmith_project} | Run ID: {state.run_id}"
-        )
         if state.telemetry:
             st.markdown("#### Run Summary")
-            st.caption("High-level runtime and recovery counts. Tool recovery counts come from RunState retry/fallback records.")
+            st.caption("Runtime, status, and recovery counts from local RunState telemetry.")
             _table(render_data.telemetry_summary_rows(state))
         recovery_events = render_data.recovery_event_rows(state)
         if recovery_events:
             st.markdown("#### Recovery Events")
             st.caption("Explicit retry and fallback decisions recorded during this run.")
             _table(recovery_events, max_height=280)
-        eval_rows = render_data.eval_checklist_rows(state)
-        if eval_rows:
-            st.markdown("#### Deterministic Guardrail Checks")
-            st.caption(
-                "Binary code-based checks for grounding, citations, warning visibility, recovery visibility, "
-                "approval boundaries, and basic safety terms. These are not a human quality score."
-            )
-            _table(eval_rows, max_height=320)
         rows = render_data.telemetry_rows(state)
         if rows:
             st.markdown("#### Agent And Tool Timing")
@@ -616,6 +604,45 @@ def _render_report(state: RunState, settings: AppSettings) -> None:
             st.markdown("#### Tool Ledger")
             st.caption("Provider-level call outcomes and messages used to audit missing data, failures, retries, and fallback sources.")
             _table(tools, max_height=420)
+
+    with tabs[6]:
+        quality_summary = render_data.quality_summary_rows(state)
+        if quality_summary:
+            st.markdown("#### Report Quality Assessment")
+            st.caption(
+                "LLM-as-judge assessment of the generated research artifact, adjusted by deterministic "
+                "guardrails and RunState telemetry. This is not investment confidence."
+            )
+            _table(quality_summary, max_height=220)
+        quality_factors = render_data.quality_factor_rows(state)
+        if quality_factors:
+            st.markdown("#### Quality Factors Considered")
+            st.caption(
+                "Factors include evidence support, ticker relevance, risk specificity, missing-data handling, "
+                "clarity, safety boundary, deterministic pass rate, data coverage, recovery transparency, "
+                "reviewer status, and memory context."
+            )
+            _table(quality_factors, max_height=420)
+        improvement_rows = render_data.quality_improvement_rows(state)
+        if improvement_rows:
+            st.markdown("#### Quality Improvement Notes")
+            _table(improvement_rows, max_height=220)
+        st.markdown("#### LangSmith Trace")
+        st.caption(
+            "External trace context for inspecting graph, tool, and LLM spans in LangSmith. "
+            "The deterministic checks below are local pass/fail evals, not model confidence or investment confidence. "
+            "LangSmith tracing: "
+            f"{'Enabled' if settings.langsmith_enabled else 'Disabled'} | "
+            f"Project: {settings.langsmith_project} | Run ID: {state.run_id}"
+        )
+        eval_rows = render_data.eval_checklist_rows(state)
+        if eval_rows:
+            st.markdown("#### Deterministic Guardrail Checks")
+            st.caption(
+                "Binary code-based checks for objective constraints: evidence contract, citations, warning visibility, "
+                "recovery visibility, approval boundary, expected LLM spans, and basic advice-boundary terms."
+            )
+            _table(eval_rows, max_height=420)
 
 
 def main() -> None:

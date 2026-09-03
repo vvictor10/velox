@@ -102,6 +102,15 @@ def test_load_settings_can_enable_demo_failure_flag(tmp_path: Path) -> None:
     assert settings.public_trace_metadata()["demo_force_alpha_news_failure"] is True
 
 
+def test_load_settings_reads_optional_quality_judge_model(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("VELOX_QUALITY_JUDGE_MODEL=accounts/fireworks/models/gpt-oss-120b\n")
+
+    settings = load_settings(env_file)
+
+    assert settings.velox_quality_judge_model == "accounts/fireworks/models/gpt-oss-120b"
+
+
 def test_traceable_step_noops_when_langsmith_disabled(tmp_path: Path) -> None:
     env_file = tmp_path / ".env"
     env_file.write_text("LANGSMITH_TRACING=false\n")
