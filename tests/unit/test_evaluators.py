@@ -6,7 +6,13 @@ from velox.evals.evaluators import evaluate_state
 from velox.models.company import CompanyIdentity
 from velox.models.evidence import EvidencePack, EvidenceRecord, EvidenceType
 from velox.models.failures import FallbackRecord
-from velox.models.report import ApprovalStatus, EarningsBrief, ReportSection
+from velox.models.report import (
+    ApprovalStatus,
+    EarningsBrief,
+    PriorReportMemory,
+    PriorReportStatus,
+    ReportSection,
+)
 from velox.models.state import RunState, RunStatus
 from velox.models.telemetry import RunTelemetry, SpanKind, TelemetrySpan
 from velox.models.tool_result import Freshness, ToolResult
@@ -146,6 +152,8 @@ def test_evaluate_state_accepts_visible_fallback_disclosure() -> None:
 
     assert result.passed is True
     assert _check(result, "no_silent_fallback").passed is True
+    assert "fallbacks=1" in _check(result, "no_silent_fallback").details
+    assert "retries=0; fallbacks=1" in _check(result, "recovery_audit_trail").details
 
 
 def test_evaluate_state_fails_silent_fallback() -> None:
@@ -168,6 +176,56 @@ def test_evaluate_state_fails_silent_fallback() -> None:
     fallback_check = _check(result, "no_silent_fallback")
     assert fallback_check.passed is False
     assert "finnhub.company_news" in fallback_check.details
+
+
+def test_evaluate_state_fails_missing_minimum_evidence_contract() -> None:
+    state = _state_with_required_report().model_copy(
+        update={
+            "evidence_pack": EvidencePack(
+                records=[
+                    EvidenceRecord(
+                        evidence_id="E1",
+                        evidence_type=EvidenceType.NEWS,
+                        provider="fixture",
+                        title="news only",
+                    )
+                ]
+            )
+        }
+    )
+
+    result = evaluate_state("weak_evidence", state)
+
+    minimum = _check(result, "minimum_evidence_contract")
+    assert minimum.passed is False
+    assert "earnings_evidence" in minimum.details
+
+
+def test_evaluate_state_allows_skipped_delta_trace_without_prior_memory() -> None:
+    state = _state_with_required_report().model_copy(
+        update={
+            "prior_memory": PriorReportMemory(
+                ticker="AAPL",
+                cik="320193",
+                status=PriorReportStatus.MISSING,
+            ),
+            "telemetry": RunTelemetry(
+                run_id="run-1",
+                spans=[
+                    TelemetrySpan(name="llm.news_theme", kind=SpanKind.LLM).finish(),
+                    TelemetrySpan(name="llm.risk", kind=SpanKind.LLM).finish(),
+                    TelemetrySpan(name="llm.brief_drafter", kind=SpanKind.LLM).finish(),
+                    TelemetrySpan(name="llm.reviewer", kind=SpanKind.LLM).finish(),
+                ],
+            ),
+        }
+    )
+
+    result = evaluate_state("no_prior_memory", state)
+
+    trace = _check(result, "llm_trace_spans")
+    assert trace.passed is True
+    assert "llm.delta:no_prior_memory" in trace.details
 
 
 def _state_with_required_report() -> RunState:

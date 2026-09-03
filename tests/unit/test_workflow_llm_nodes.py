@@ -65,6 +65,48 @@ def test_research_graph_streams_progress_updates(monkeypatch: pytest.MonkeyPatch
     }
 
 
+def test_news_theme_payload_uses_filtered_news_snapshot() -> None:
+    evidence_pack = EvidencePack(
+        records=[
+            EvidenceRecord(
+                evidence_type=EvidenceType.NEWS,
+                provider="Alpha Vantage NEWS_SENTIMENT",
+                title="alpha_vantage.news_sentiment",
+                payload={
+                    "feed": [
+                        {
+                            "time_published": "20260901T120000",
+                            "title": "Nvidia announces data center update",
+                            "source": "Example Wire",
+                            "summary": "A data center update from Nvidia.",
+                            "url": "https://example.test/nvda",
+                            "ticker_sentiment": [{"ticker": "NVDA"}],
+                        },
+                        {
+                            "time_published": "20260901T130000",
+                            "title": "Meta announces advertising tools",
+                            "source": "Example Wire",
+                            "summary": "A Meta platform update.",
+                            "url": "https://example.test/meta",
+                            "ticker_sentiment": [{"ticker": "META"}],
+                        },
+                    ]
+                },
+            )
+        ]
+    ).assign_ids()
+    state = RunState(
+        selected_ticker="META",
+        evidence_pack=evidence_pack,
+        news=normalize_news_snapshot("META", evidence_pack),
+    )
+
+    payload = nodes._news_theme_payload(state)
+
+    assert len(payload["evidence"]) == 1
+    assert payload["evidence"][0]["title"] == "Meta announces advertising tools"
+
+
 def test_llm_node_retries_once_after_invalid_schema(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_foundation(monkeypatch)
     fake_client = _FakeLlmClient(invalid_first_stage="risk")

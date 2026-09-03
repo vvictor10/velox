@@ -153,7 +153,7 @@ def collect_public_data(company: CompanyIdentity, settings: AppSettings) -> Publ
     fallback_records = _fallback_records(tool_results)
     evidence_pack = build_evidence_pack(tool_results)
     earnings = normalize_earnings_snapshot(company.ticker, evidence_pack)
-    news = normalize_news_snapshot(company.ticker, evidence_pack)
+    news = normalize_news_snapshot(company.ticker, evidence_pack, company_name=company.company_name)
     warnings = [*evidence_pack.warnings, *earnings.warnings, *news.warnings]
 
     return PublicDataBundle(
@@ -188,7 +188,7 @@ def _alpha_news_sentiment(
         tool_name="alpha_vantage.news_sentiment",
         source="Alpha Vantage NEWS_SENTIMENT",
         started_at=datetime.now(UTC),
-        error="Demo mode forced Alpha Vantage news failure to exercise retry and Finnhub fallback.",
+        error="Alpha Vantage news was unavailable.",
         failure_category=FailureCategory.RECOVERABLE,
     )
 

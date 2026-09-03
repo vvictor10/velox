@@ -23,6 +23,7 @@ from velox.models.report import (
     ApprovalStatus,
     DeltaFinding,
     EarningsBrief,
+    PriorReportStatus,
     ReportSection,
     ReviewerFinding,
     ReviewerResult,
@@ -183,9 +184,14 @@ def make_news_theme_node(settings: AppSettings):
                 failure_category=FailureCategory.DEGRADED_CONTINUABLE,
             ).model_copy(update={"news_themes": []})
         news_theme_output = NewsThemeOutput.model_validate(result.output)
+        next_progress = (
+            progress.ANALYZING_DELTA
+            if _has_prior_report_memory(current)
+            else progress.SKIPPING_DELTA_NO_MEMORY
+        )
         return current.model_copy(
             update={"news_themes": [theme.model_dump() for theme in news_theme_output.themes]}
-        ).touch(progress_text=progress.ANALYZING_DELTA, status=RunStatus.RUNNING)
+        ).touch(progress_text=next_progress, status=RunStatus.RUNNING)
 
     return news_theme_node
 
@@ -556,6 +562,7 @@ def save_approved_memory(
             brief=current.brief,
             approved=approved,
             existing_memory_id=current.prior_memory.memory_id if current.prior_memory else None,
+            previous_memory=current.prior_memory,
         )
     )
     save_result = traced_save()
@@ -660,11 +667,7 @@ def _state_with_llm_telemetry(state: RunState, result: LlmCallResult) -> RunStat
 def _news_theme_payload(state: RunState) -> dict[str, Any]:
     return {
         "ticker": state.selected_ticker,
-        "evidence": [
-            _evidence_payload(record, max_payload_chars=1200)
-            for record in state.evidence_pack.records
-            if record.evidence_type.value == "news"
-        ],
+        "evidence": _news_evidence_payloads(state, max_payload_chars=1200),
     }
 
 
@@ -684,10 +687,7 @@ def _delta_payload(state: RunState) -> dict[str, Any]:
 def _risk_payload(state: RunState) -> dict[str, Any]:
     return {
         "ticker": state.selected_ticker,
-        "evidence": [
-            _evidence_payload(record, max_payload_chars=1200)
-            for record in state.evidence_pack.records
-        ],
+        "evidence": _analysis_evidence_payloads(state, max_payload_chars=1200),
         "news_themes": state.news_themes,
         "delta_findings": [finding.model_dump() for finding in state.delta_findings],
         "warnings": _warning_messages(state),
@@ -698,10 +698,7 @@ def _brief_payload(state: RunState) -> dict[str, Any]:
     payload = {
         "ticker": state.selected_ticker,
         "company_name": state.company.display_name if state.company else None,
-        "evidence": [
-            _evidence_payload(record, max_payload_chars=1200)
-            for record in state.evidence_pack.records
-        ],
+        "evidence": _analysis_evidence_payloads(state, max_payload_chars=1200),
         "news_themes": state.news_themes,
         "delta_findings": [finding.model_dump() for finding in state.delta_findings],
         "risk_findings": [finding.model_dump() for finding in state.risk_findings],
@@ -748,6 +745,38 @@ def _evidence_payload(record: EvidenceRecord, *, max_payload_chars: int) -> dict
     }
 
 
+def _analysis_evidence_payloads(state: RunState, *, max_payload_chars: int) -> list[dict[str, Any]]:
+    records = [
+        _evidence_payload(record, max_payload_chars=max_payload_chars)
+        for record in state.evidence_pack.records
+        if record.evidence_type.value != "news"
+    ]
+    return [*records, *_news_evidence_payloads(state, max_payload_chars=max_payload_chars)]
+
+
+def _news_evidence_payloads(state: RunState, *, max_payload_chars: int) -> list[dict[str, Any]]:
+    if state.news is None:
+        return [
+            _evidence_payload(record, max_payload_chars=max_payload_chars)
+            for record in state.evidence_pack.records
+            if record.evidence_type.value == "news"
+        ]
+    return [
+        {
+            "evidence_id": item.source_evidence_id,
+            "type": "news",
+            "provider": item.source_provider,
+            "title": item.headline,
+            "source_url": item.url,
+            "source_date": item.published_at.isoformat(),
+            "captured_at": item.captured_at.isoformat(),
+            "freshness": "current",
+            "payload": _compact_payload(item.model_dump(mode="json"), max_chars=max_payload_chars),
+        }
+        for item in state.news.items
+    ]
+
+
 def _warning_messages(state: RunState) -> list[str]:
     return [warning.message for warning in _dedupe_warnings([*state.warnings, *state.evidence_pack.warnings])]
 
@@ -790,13 +819,17 @@ def _state_from_public_data_bundle(state: RunState, bundle: PublicDataBundle) ->
 
 
 def _public_data_progress(bundle: PublicDataBundle) -> str:
-    if bundle.retry_records:
-        return bundle.retry_records[-1].user_message
     if bundle.fallback_records:
         return bundle.fallback_records[-1].user_message
+    if bundle.retry_records:
+        return bundle.retry_records[-1].user_message
     if bundle.completed_with_warnings:
         return "Evidence collected with warnings; assembling citations."
     return progress.ASSEMBLING_EVIDENCE
+
+
+def _has_prior_report_memory(state: RunState) -> bool:
+    return state.prior_memory is not None and state.prior_memory.status == PriorReportStatus.FOUND
 
 
 def _stop_with_warning(

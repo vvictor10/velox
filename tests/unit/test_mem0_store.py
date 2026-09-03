@@ -4,7 +4,7 @@ from pathlib import Path
 
 from velox.config import AppSettings
 from velox.models.company import CompanyIdentity
-from velox.models.report import EarningsBrief, PriorReportStatus, ReportSection
+from velox.models.report import EarningsBrief, PriorReportMemory, PriorReportStatus, ReportSection
 from velox.models.telemetry import FailureCategory
 from velox.models.tool_result import ToolStatus
 from velox.providers.mem0_store import MAX_SAVED_COMPANIES, Mem0ReportStore
@@ -144,6 +144,43 @@ def test_approved_save_updates_existing_mem0_memory_when_id_is_known(tmp_path: P
     assert client.add_calls == []
     assert len(client.update_calls) == 1
     assert client.update_calls[0][0] == "mem-existing"
+
+
+def test_approved_save_retains_previous_approved_snapshot_history(tmp_path: Path) -> None:
+    client = FakeMemoryClient()
+    store = Mem0ReportStore(AppSettings(mem0_api_key="test-key"), client=client, snapshot_dir=tmp_path)
+    previous = PriorReportMemory(
+        ticker="AAPL",
+        cik="320193",
+        status=PriorReportStatus.FOUND,
+        memory_id="mem-existing",
+        summary="Prior summary",
+        payload={
+            "headline": "Prior report",
+            "sections": [
+                {
+                    "title": "Prior Risks",
+                    "body": "Prior risk body",
+                    "citation_ids": ["E1"],
+                }
+            ],
+            "warnings": [],
+        },
+    )
+
+    result = store.save_approved_report(
+        company=_company(),
+        brief=_brief("Updated with missing live data warning"),
+        approved=True,
+        existing_memory_id="mem-existing",
+        previous_memory=previous,
+    )
+
+    history = result.memory.payload["prior_approved_snapshots"]
+    assert history[0]["headline"] == "Prior report"
+    assert history[0]["sections"][0]["title"] == "Prior Risks"
+    assert "prior_approved_snapshots" in result.saved_snapshot_path.read_text(encoding="utf-8")
+    assert "Prior Risks" in client.update_calls[0][1]["options"].text
 
 
 def test_approved_save_extracts_nested_mem0_memory_id(tmp_path: Path) -> None:

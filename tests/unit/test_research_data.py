@@ -94,4 +94,4 @@ def test_demo_flag_forces_alpha_news_recoverable_failure() -> None:
     assert result.tool_name == "alpha_vantage.news_sentiment"
     assert result.status == ToolStatus.FAILED
     assert result.failure_category == FailureCategory.RECOVERABLE
-    assert "Demo mode forced" in (result.error or "")
+    assert result.error == "Alpha Vantage news was unavailable."

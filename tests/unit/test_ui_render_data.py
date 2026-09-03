@@ -5,8 +5,9 @@ from datetime import UTC, date, datetime
 from velox.models.company import CompanyIdentity
 from velox.models.earnings import EarningsEvent, EarningsSnapshot, HistoricalEarningsQuarter
 from velox.models.evidence import EvidencePack, EvidenceRecord, EvidenceType
+from velox.models.failures import FallbackRecord, RetryRecord
 from velox.models.state import RunState, RunStatus
-from velox.models.telemetry import RunTelemetry, SpanKind, TelemetrySpan
+from velox.models.telemetry import FailureCategory, RunTelemetry, SpanKind, TelemetrySpan
 from velox.ui import render_data
 
 
@@ -124,6 +125,88 @@ def test_summary_metric_items_prefer_forward_earnings_values() -> None:
     ]
 
 
+def test_earnings_rows_and_charts_use_latest_four_quarters() -> None:
+    state = RunState(
+        earnings=EarningsSnapshot(
+            ticker="META",
+            history=[
+                HistoricalEarningsQuarter(
+                    period=date(2025, 9, 30),
+                    eps_actual=7.25,
+                    eps_estimate=6.70,
+                    surprise_percent=8.05,
+                    source_provider="fixture",
+                ),
+                HistoricalEarningsQuarter(
+                    period=date(2025, 12, 31),
+                    eps_actual=8.90,
+                    eps_estimate=8.25,
+                    surprise_percent=8.03,
+                    source_provider="fixture",
+                ),
+                HistoricalEarningsQuarter(
+                    period=date(2026, 3, 31),
+                    eps_actual=7.30,
+                    eps_estimate=6.80,
+                    surprise_percent=7.18,
+                    source_provider="fixture",
+                ),
+                HistoricalEarningsQuarter(
+                    period=date(2026, 6, 30),
+                    eps_actual=6.20,
+                    eps_estimate=7.30,
+                    surprise_percent=-12.96,
+                    source_provider="fixture",
+                ),
+                HistoricalEarningsQuarter(
+                    period=date(2024, 9, 30),
+                    eps_actual=6.00,
+                    eps_estimate=5.30,
+                    surprise_percent=13.77,
+                    source_provider="fixture",
+                ),
+                HistoricalEarningsQuarter(
+                    period=date(2024, 12, 31),
+                    eps_actual=8.00,
+                    eps_estimate=6.65,
+                    surprise_percent=20.06,
+                    source_provider="fixture",
+                ),
+                HistoricalEarningsQuarter(
+                    period=date(2025, 3, 31),
+                    eps_actual=6.40,
+                    eps_estimate=5.20,
+                    surprise_percent=23.42,
+                    source_provider="fixture",
+                ),
+                HistoricalEarningsQuarter(
+                    period=date(2025, 6, 30),
+                    eps_actual=7.10,
+                    eps_estimate=5.85,
+                    surprise_percent=21.84,
+                    source_provider="fixture",
+                ),
+            ],
+        )
+    )
+
+    table_rows = render_data.earnings_history_rows(state)
+    chart_rows = render_data.earnings_surprise_chart_rows(state)
+
+    assert [row["Period"] for row in table_rows] == [
+        "30th June 2026",
+        "31st March 2026",
+        "31st December 2025",
+        "30th September 2025",
+    ]
+    assert [row["Period"] for row in chart_rows] == [
+        "30th September 2025",
+        "31st December 2025",
+        "31st March 2026",
+        "30th June 2026",
+    ]
+
+
 def test_source_rows_drop_blank_source_date_column() -> None:
     state = RunState(
         evidence_pack=EvidencePack(
@@ -159,6 +242,71 @@ def test_telemetry_rows_use_seconds() -> None:
     rows = render_data.telemetry_rows(state)
 
     assert rows[0]["Duration"] == "8.12s"
+
+
+def test_telemetry_summary_separates_tool_and_llm_recovery_counts() -> None:
+    state = RunState(
+        retry_records=[
+            RetryRecord(
+                tool_name="alpha_vantage.news_sentiment",
+                attempt_count=1,
+                reason="Alpha Vantage news was unavailable.",
+                failure_category=FailureCategory.RECOVERABLE,
+                user_message="Retrying Alpha Vantage news fetch.",
+            )
+        ],
+        fallback_records=[
+            FallbackRecord(
+                primary_tool_name="alpha_vantage.news_sentiment",
+                fallback_tool_name="finnhub.company_news",
+                reason="Alpha Vantage news was unavailable.",
+                user_message="Alpha Vantage news was unavailable; using Finnhub company news.",
+            )
+        ],
+        telemetry=RunTelemetry(
+            run_id="run-1",
+            spans=[
+                TelemetrySpan(name="llm.risk", kind=SpanKind.LLM).model_copy(
+                    update={"retry_count": 1}
+                )
+            ],
+        ).finish(final_status="waiting_for_approval"),
+    )
+
+    rows = render_data.telemetry_summary_rows(state)
+
+    assert rows[0]["Tool Retries"] == 1
+    assert rows[0]["Tool Fallbacks"] == 1
+    assert rows[0]["LLM Retries"] == 1
+
+
+def test_recovery_event_rows_show_retry_and_fallback_records() -> None:
+    state = RunState(
+        retry_records=[
+            RetryRecord(
+                tool_name="alpha_vantage.news_sentiment",
+                attempt_count=1,
+                reason="Alpha Vantage news was unavailable.",
+                failure_category=FailureCategory.RECOVERABLE,
+                user_message="Retrying Alpha Vantage news fetch.",
+            )
+        ],
+        fallback_records=[
+            FallbackRecord(
+                primary_tool_name="alpha_vantage.news_sentiment",
+                fallback_tool_name="finnhub.company_news",
+                reason="Alpha Vantage news was unavailable.",
+                user_message="Alpha Vantage news was unavailable; using Finnhub company news.",
+            )
+        ],
+    )
+
+    rows = render_data.recovery_event_rows(state)
+
+    assert [row["Event"] for row in rows] == ["Retry", "Fallback"]
+    assert rows[0]["Primary Tool"] == "alpha_vantage.news_sentiment"
+    assert rows[1]["Fallback Tool"] == "finnhub.company_news"
+    assert rows[1]["Message"] == "Alpha Vantage news was unavailable; using Finnhub company news."
 
 
 def test_news_theme_rows_use_readable_headers() -> None:
@@ -204,5 +352,5 @@ def test_eval_checklist_rows_expose_system_eval_results() -> None:
 
     assert rows
     assert rows[0]["Check"] == "Final Status Known"
-    assert "Passed" in rows[0]
-    assert "Score" in rows[0]
+    assert "Result" in rows[0]
+    assert "Gate Score" in rows[0]

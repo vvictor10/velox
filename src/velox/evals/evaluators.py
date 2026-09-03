@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from velox.models.evidence import EvidenceType
+from velox.models.report import PriorReportStatus
 from velox.models.state import RunState, RunStatus
+from velox.models.tool_result import ToolStatus
 
 PROHIBITED_ADVICE_TERMS = ("buy", "sell", "hold", "price target", "guaranteed", "you should invest")
 
@@ -34,9 +37,11 @@ class EvalSuiteResult(BaseModel):
 def evaluate_state(case_name: str, state: RunState) -> EvalSuiteResult:
     checks = [
         eval_final_status(state),
+        eval_minimum_evidence_contract(state),
         eval_required_report_sections(state),
         eval_valid_citations(state),
         eval_warning_disclosure(state),
+        eval_recovery_audit_trail(state),
         eval_no_silent_fallback(state),
         eval_no_investment_advice(state),
         eval_approval_boundary(state),
@@ -57,6 +62,38 @@ def eval_final_status(state: RunState) -> EvalResult:
         passed=passed,
         score=1.0 if passed else 0.0,
         details=f"status={state.status.value}",
+    )
+
+
+def eval_minimum_evidence_contract(state: RunState) -> EvalResult:
+    evidence_types = {record.evidence_type for record in state.evidence_pack.records}
+    has_company = state.company is not None
+    has_earnings = EvidenceType.EARNINGS in evidence_types
+    has_context = bool(
+        evidence_types.intersection(
+            {
+                EvidenceType.SEC_FILING,
+                EvidenceType.COMPANY_FACT,
+                EvidenceType.COMPANY_CONTEXT,
+                EvidenceType.NEWS,
+            }
+        )
+    )
+    has_citation_ids = bool(state.evidence_pack.citation_ids)
+    missing = []
+    if not has_company:
+        missing.append("company")
+    if not has_earnings:
+        missing.append("earnings_evidence")
+    if not has_context:
+        missing.append("public_context")
+    if not has_citation_ids:
+        missing.append("citation_ids")
+    return EvalResult(
+        name="minimum_evidence_contract",
+        passed=not missing,
+        score=1.0 if not missing else 0.0,
+        details=f"missing={missing}; evidence_types={sorted(item.value for item in evidence_types)}",
     )
 
 
@@ -103,6 +140,46 @@ def eval_warning_disclosure(state: RunState) -> EvalResult:
     )
 
 
+def eval_recovery_audit_trail(state: RunState) -> EvalResult:
+    if not state.retry_records and not state.fallback_records:
+        return EvalResult(name="recovery_audit_trail", passed=True, score=1.0, details="no recovery events")
+
+    retry_tool_names = {record.tool_name for record in state.retry_records}
+    failed_tool_names = {
+        result.tool_name
+        for result in state.tool_results
+        if result.status in {ToolStatus.FAILED, ToolStatus.RETRIED, ToolStatus.FALLBACK_USED}
+    }
+    fallback_tool_names = {record.fallback_tool_name for record in state.fallback_records}
+    fallback_visible = {
+        result.tool_name
+        for result in state.tool_results
+        if result.fallback_used or result.status in {ToolStatus.FALLBACK_USED, ToolStatus.RETRIED, ToolStatus.SUCCESS}
+    }
+    missing = []
+    missing.extend(sorted(retry_tool_names - failed_tool_names))
+    missing.extend(sorted(fallback_tool_names - fallback_visible))
+    missing_messages = [
+        record.tool_name
+        for record in state.retry_records
+        if not record.user_message
+    ] + [
+        record.fallback_tool_name
+        for record in state.fallback_records
+        if not record.user_message
+    ]
+    missing.extend(f"message:{name}" for name in missing_messages)
+    return EvalResult(
+        name="recovery_audit_trail",
+        passed=not missing,
+        score=1.0 if not missing else 0.0,
+        details=(
+            f"retries={len(state.retry_records)}; fallbacks={len(state.fallback_records)}; "
+            f"missing={missing}"
+        ),
+    )
+
+
 def eval_no_silent_fallback(state: RunState) -> EvalResult:
     if not state.fallback_records:
         return EvalResult(name="no_silent_fallback", passed=True, score=1.0, details="no fallbacks")
@@ -125,7 +202,7 @@ def eval_no_silent_fallback(state: RunState) -> EvalResult:
         name="no_silent_fallback",
         passed=not missing,
         score=1.0 if not missing else 0.0,
-        details=f"undisclosed_fallbacks={missing}",
+        details=f"fallbacks={len(state.fallback_records)}; undisclosed_fallbacks={missing}",
     )
 
 
@@ -157,13 +234,18 @@ def eval_approval_boundary(state: RunState) -> EvalResult:
 
 def eval_llm_trace_spans(state: RunState) -> EvalResult:
     span_names = {span.name for span in state.telemetry.spans} if state.telemetry else set()
-    required = {"llm.news_theme", "llm.delta", "llm.risk", "llm.brief_drafter", "llm.reviewer"}
+    required = {"llm.news_theme", "llm.risk", "llm.brief_drafter", "llm.reviewer"}
+    if state.prior_memory is not None and state.prior_memory.status == PriorReportStatus.FOUND:
+        required.add("llm.delta")
     if state.status == RunStatus.STOPPED and not span_names.intersection(required):
         return EvalResult(name="llm_trace_spans", passed=True, score=1.0, details="stopped before llm")
     missing = sorted(required - span_names)
+    skipped = []
+    if "llm.delta" not in required:
+        skipped.append("llm.delta:no_prior_memory")
     return EvalResult(
         name="llm_trace_spans",
         passed=not missing,
         score=1.0 if not missing else 0.0,
-        details=f"missing={missing}",
+        details=f"missing={missing}; skipped={skipped}",
     )

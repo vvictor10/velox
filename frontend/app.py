@@ -252,6 +252,9 @@ def _run_research(ticker: str, container) -> RunState:
                 and previous_active_text not in completed_messages
             ):
                 completed_messages.append(previous_active_text)
+            for event_text in _recoverability_status_labels(state):
+                if event_text not in completed_messages:
+                    completed_messages.append(event_text)
             _render_progress_panel(progress_panel, current_text)
             _render_progress_log(progress_log, completed_messages)
             previous_active_text = current_text
@@ -269,6 +272,14 @@ def _run_research(ticker: str, container) -> RunState:
 
 def _status_label(message: str) -> str:
     return message.rstrip().rstrip(".")
+
+
+def _recoverability_status_labels(state: RunState) -> list[str]:
+    messages = [
+        *(record.user_message for record in state.retry_records),
+        *(record.user_message for record in state.fallback_records),
+    ]
+    return [_status_label(message) for message in messages if message]
 
 
 def _render_progress_panel(slot, message: str, *, complete: bool = False, error: bool = False) -> None:
@@ -573,24 +584,37 @@ def _render_report(state: RunState, settings: AppSettings) -> None:
     with tabs[5]:
         st.markdown("#### Observability")
         st.caption(
+            "Run instrumentation. LangSmith stores external traces when enabled; local telemetry is shown below either way. "
             "LangSmith tracing: "
             f"{'Enabled' if settings.langsmith_enabled else 'Disabled'} | "
             f"Project: {settings.langsmith_project} | Run ID: {state.run_id}"
         )
         if state.telemetry:
             st.markdown("#### Run Summary")
+            st.caption("High-level runtime and recovery counts. Tool recovery counts come from RunState retry/fallback records.")
             _table(render_data.telemetry_summary_rows(state))
+        recovery_events = render_data.recovery_event_rows(state)
+        if recovery_events:
+            st.markdown("#### Recovery Events")
+            st.caption("Explicit retry and fallback decisions recorded during this run.")
+            _table(recovery_events, max_height=280)
         eval_rows = render_data.eval_checklist_rows(state)
         if eval_rows:
-            st.markdown("#### System Eval Checklist")
+            st.markdown("#### Deterministic Guardrail Checks")
+            st.caption(
+                "Binary code-based checks for grounding, citations, warning visibility, recovery visibility, "
+                "approval boundaries, and basic safety terms. These are not a human quality score."
+            )
             _table(eval_rows, max_height=320)
         rows = render_data.telemetry_rows(state)
         if rows:
             st.markdown("#### Agent And Tool Timing")
+            st.caption("Per-stage spans for graph nodes, tools, and LLM calls, including prompt version and model metadata when available.")
             _table(rows, max_height=380)
         tools = render_data.tool_rows(state)
         if tools:
             st.markdown("#### Tool Ledger")
+            st.caption("Provider-level call outcomes and messages used to audit missing data, failures, retries, and fallback sources.")
             _table(tools, max_height=420)
 
 
@@ -607,15 +631,25 @@ def main() -> None:
         run_clicked = st.button("Run Research", disabled=selected_company is None, width="stretch")
         if run_clicked and selected_company:
             st.session_state["run_state"] = None
-            main_panel.empty()
-            with header_panel.container():
-                _render_header(None, selected_company=selected_company)
-            st.session_state["run_state"] = _run_research(selected_company.ticker, main_panel)
+            st.session_state["pending_ticker"] = selected_company.ticker
+            st.session_state["pending_company"] = selected_company.model_dump()
             st.rerun()
 
         st.divider()
         st.header("System Status")
         _table(render_data.startup_rows(settings), max_height=300)
+
+    pending_ticker = st.session_state.get("pending_ticker")
+    if pending_ticker:
+        pending_company = CompanyIdentity.model_validate(st.session_state.get("pending_company"))
+        with header_panel.container():
+            _render_header(None, selected_company=pending_company)
+        try:
+            st.session_state["run_state"] = _run_research(str(pending_ticker), main_panel)
+        finally:
+            st.session_state.pop("pending_ticker", None)
+            st.session_state.pop("pending_company", None)
+        st.rerun()
 
     state = st.session_state.get("run_state")
     with header_panel.container():

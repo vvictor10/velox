@@ -2,7 +2,7 @@
 
 ## Primer
 
-My agent helps individual investors prepare for upcoming earnings in a web app, replacing the 1-2 hours of manual searching across earnings calendars, SEC filings, financial data sites, news, and analyst commentary. It researches a ticker on its own using ticker-search, earnings-calendar, SEC/company-facts, market-data, news, Mem0 memory, and LLM tools, hands off to the investor before saving or treating any output as an investment decision, and I will know it works when a user can generate a useful, source-grounded earnings preview brief in under 5 minutes for supported U.S. tickers, with visible tool usage, clear missing-data notes, and no unsupported investment recommendations.
+My agent helps individual investors prepare for upcoming earnings in a web app, replacing the 1-2 hours of manual searching across earnings calendars, SEC filings, financial data sites, news, and analyst commentary. It researches a ticker on its own using ticker-search, earnings-calendar, SEC/company-facts, market-data, news, Mem0 memory, and LLM tools, hands off to the investor before saving or treating any output as an investment decision, and I will know it works when a user can typically generate a useful, source-grounded earnings preview brief in under 3 minutes for supported U.S. tickers, with a 5-minute ceiling for retry/fallback runs, visible tool usage, clear missing-data notes, and no unsupported investment recommendations.
 
 ## One-Liner
 
@@ -26,7 +26,7 @@ Velox is a learning prototype. It is not a brokerage, advisor, trading system, p
 | What should it never do? | It should never place trades, give definitive buy/sell instructions, guarantee earnings outcomes, hide missing data, fabricate citations, access personal finance accounts, or present educational research as personalized financial advice. |
 | Human-in-the-loop | The app ends each successful run at a Human Review Gate. The user reviews the brief, sources, warnings, and reviewer findings before approving memory save. The user can approve, reject by doing nothing, or rerun with a revised ticker; write actions do not happen automatically. |
 | What happens when something breaks? | If a tool fails, the agent retries once, falls back to a simpler source or saved report data when available, and clearly marks the missing or stale field in both the UI and the brief. If ticker validation fails, it stops and asks for a corrected ticker. |
-| How do you know it worked? | It produces usable earnings preview briefs for supported U.S. tickers in under 5 minutes each, includes source labels/links and risk flags, shows missing-data warnings when needed, and avoids unsupported investment recommendations. |
+| How do you know it worked? | It produces usable earnings preview briefs for supported U.S. tickers, typically in under 3 minutes and within 5 minutes for retry/fallback runs, includes source labels/links and risk flags, shows missing-data warnings when needed, and avoids unsupported investment recommendations. |
 
 ## User Experience Requirements
 
@@ -99,7 +99,7 @@ Each generated brief should include:
 ## Success Criteria
 
 - Submission demo runs end to end for 2-3 public tickers.
-- Each brief is generated in under 5 minutes.
+- Each brief is generated in under 3 minutes on typical supported runs, with a 5-minute ceiling for runs that trigger provider retry/fallback paths.
 - UI clearly shows multi-step agent progress, plain-language loading states, and tool usage.
 - Telemetry shows total runtime, slowest step, per-agent timing, per-tool timing, retries, and fallbacks.
 - Saved project-owned reports power a visible what-changed-since-last-time section.

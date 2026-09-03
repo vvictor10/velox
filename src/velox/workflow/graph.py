@@ -5,6 +5,7 @@ from __future__ import annotations
 from langgraph.graph import END, StateGraph
 
 from velox.config import AppSettings
+from velox.models.report import PriorReportStatus
 from velox.models.state import RunState, RunStatus
 from velox.models.telemetry import RunTelemetry
 from velox.observability import build_run_metadata, traceable_step
@@ -90,8 +91,8 @@ def build_research_graph(settings: AppSettings):
     )
     graph.add_conditional_edges(
         "news_theme_analysis",
-        _route_after_stop,
-        {"continue": "delta_analysis", "stop": END},
+        _route_after_news_theme,
+        {"delta": "delta_analysis", "risk": "risk_analysis", "stop": END},
     )
     graph.add_conditional_edges(
         "delta_analysis",
@@ -178,6 +179,8 @@ def stream_research_graph(ticker: str, settings: AppSettings):
     ]
 
     for name, progress_text, func in steps:
+        if name == "delta_analysis" and not _has_prior_report_memory(current):
+            continue
         current = current.touch(progress_text=progress_text, status=RunStatus.RUNNING)
         yield current
         traced_node = _traced_node(name, func, settings)
@@ -214,3 +217,14 @@ def _finalize_state(state: RunState) -> RunState:
 def _route_after_stop(state: RunState | dict) -> str:
     current = state if isinstance(state, RunState) else RunState.model_validate(state)
     return "stop" if current.status in {RunStatus.STOPPED, RunStatus.FAILED} else "continue"
+
+
+def _route_after_news_theme(state: RunState | dict) -> str:
+    current = state if isinstance(state, RunState) else RunState.model_validate(state)
+    if current.status in {RunStatus.STOPPED, RunStatus.FAILED}:
+        return "stop"
+    return "delta" if _has_prior_report_memory(current) else "risk"
+
+
+def _has_prior_report_memory(state: RunState) -> bool:
+    return state.prior_memory is not None and state.prior_memory.status == PriorReportStatus.FOUND

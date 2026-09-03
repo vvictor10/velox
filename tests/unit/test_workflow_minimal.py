@@ -261,7 +261,7 @@ class _FakeStore:
     def lookup_prior_report(self, _company):
         return self.memory, self.lookup_result
 
-    def save_approved_report(self, *, company, brief, approved, existing_memory_id=None):
+    def save_approved_report(self, *, company, brief, approved, existing_memory_id=None, previous_memory=None):
         from velox.providers.mem0_store import MemorySaveResult
 
         if not approved:

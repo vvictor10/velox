@@ -10,6 +10,7 @@ from velox.models.company import friendly_company_name
 from velox.models.state import RunState
 
 TEXT_LIMIT = 220
+RECENT_EARNINGS_HISTORY_LIMIT = 4
 
 
 def ticker_options(state_companies) -> list[str]:
@@ -145,7 +146,7 @@ def earnings_history_rows(state: RunState) -> list[dict[str, Any]]:
             "Source": item.source_provider,
             "Evidence": item.source_evidence_id,
         }
-        for item in state.earnings.history
+        for item in _recent_earnings_history(state)
     ]
     return clean_rows(rows)
 
@@ -199,32 +200,58 @@ def summary_metric_items(state: RunState, *, release_date: str | None = None) ->
 
 
 def earnings_surprise_chart_rows(state: RunState) -> list[dict[str, Any]]:
-    if state.earnings is None:
-        return []
     rows = [
         {
             "Period": format_date(item.period),
             "EPS Surprise %": item.surprise_percent,
         }
-        for item in state.earnings.history
+        for item in _recent_earnings_history(state)
         if item.period is not None and item.surprise_percent is not None
     ]
     return list(reversed(rows))
 
 
 def earnings_eps_chart_rows(state: RunState) -> list[dict[str, Any]]:
-    if state.earnings is None:
-        return []
     rows = [
         {
             "Period": format_date(item.period),
             "EPS Actual": item.eps_actual,
             "EPS Estimate": item.eps_estimate,
         }
-        for item in state.earnings.history
+        for item in _recent_earnings_history(state)
         if item.period is not None and (item.eps_actual is not None or item.eps_estimate is not None)
     ]
     return list(reversed(rows))
+
+
+def _recent_earnings_history(state: RunState):
+    if state.earnings is None:
+        return []
+    dated = [item for item in state.earnings.history if item.period is not None]
+    undated = [item for item in state.earnings.history if item.period is None]
+    by_period = {}
+    for item in dated:
+        existing = by_period.get(item.period)
+        if existing is None or _history_completeness(item) > _history_completeness(existing):
+            by_period[item.period] = item
+    return [
+        *sorted(by_period.values(), key=lambda item: item.period, reverse=True),
+        *undated,
+    ][:RECENT_EARNINGS_HISTORY_LIMIT]
+
+
+def _history_completeness(item) -> int:
+    return sum(
+        value is not None
+        for value in (
+            item.eps_actual,
+            item.eps_estimate,
+            item.revenue_actual,
+            item.revenue_estimate,
+            item.surprise,
+            item.surprise_percent,
+        )
+    )
 
 
 def next_earnings_rows(state: RunState) -> list[dict[str, Any]]:
@@ -335,13 +362,44 @@ def telemetry_summary_rows(state: RunState) -> list[dict[str, Any]]:
                 "Final Status": summary.get("final_status") or "",
                 "Completed With Warnings": summary.get("completed_with_warnings"),
                 "Total Runtime": format_seconds(summary.get("total_duration_ms")),
-                "Retries": summary.get("retry_count"),
-                "Fallbacks": summary.get("fallback_count"),
+                "Tool Retries": len(state.retry_records),
+                "Tool Fallbacks": len(state.fallback_records),
+                "LLM Retries": summary.get("retry_count"),
                 "Slowest Span": summary.get("slowest_span") or "",
                 "Slowest Duration": format_seconds(summary.get("slowest_span_duration_ms")),
             }
         ]
     )
+
+
+def recovery_event_rows(state: RunState) -> list[dict[str, Any]]:
+    retry_rows = [
+        {
+            "Event": "Retry",
+            "Primary Tool": record.tool_name,
+            "Fallback Tool": "",
+            "Attempt": str(record.attempt_count),
+            "Category": format_label(record.failure_category.value),
+            "Message": compact_text(record.user_message),
+            "Reason": compact_text(record.reason),
+            "Timestamp": format_date(record.created_at),
+        }
+        for record in state.retry_records
+    ]
+    fallback_rows = [
+        {
+            "Event": "Fallback",
+            "Primary Tool": record.primary_tool_name,
+            "Fallback Tool": record.fallback_tool_name,
+            "Attempt": "",
+            "Category": "",
+            "Message": compact_text(record.user_message),
+            "Reason": compact_text(record.reason),
+            "Timestamp": format_date(record.created_at),
+        }
+        for record in state.fallback_records
+    ]
+    return clean_rows([*retry_rows, *fallback_rows])
 
 
 def eval_checklist_rows(state: RunState) -> list[dict[str, Any]]:
@@ -350,8 +408,8 @@ def eval_checklist_rows(state: RunState) -> list[dict[str, Any]]:
         [
             {
                 "Check": format_label(result.name),
-                "Passed": result.passed,
-                "Score": f"{result.score:.2f}",
+                "Result": "Pass" if result.passed else "Fail",
+                "Gate Score": f"{result.score:.2f}",
                 "Details": compact_text(result.details),
             }
             for result in suite.results

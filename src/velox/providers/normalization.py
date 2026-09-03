@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -15,6 +16,8 @@ from velox.models.evidence import EvidencePack, EvidenceRecord, EvidenceType
 from velox.models.news import NewsItem, NewsSnapshot
 from velox.models.tool_result import ToolResult, ToolStatus
 from velox.models.warnings import WarningRecord, WarningSeverity
+
+RECENT_EARNINGS_HISTORY_LIMIT = 4
 
 
 def build_evidence_pack(tool_results: list[ToolResult]) -> EvidencePack:
@@ -89,13 +92,24 @@ def normalize_earnings_snapshot(ticker: str, evidence_pack: EvidencePack) -> Ear
             )
         )
 
-    return EarningsSnapshot(ticker=ticker, next_event=next_event, history=history, warnings=warnings)
+    return EarningsSnapshot(
+        ticker=ticker,
+        next_event=next_event,
+        history=_latest_history(history, limit=RECENT_EARNINGS_HISTORY_LIMIT),
+        warnings=warnings,
+    )
 
 
-def normalize_news_snapshot(ticker: str, evidence_pack: EvidencePack, limit: int = 25) -> NewsSnapshot:
+def normalize_news_snapshot(
+    ticker: str,
+    evidence_pack: EvidencePack,
+    limit: int = 25,
+    company_name: str | None = None,
+) -> NewsSnapshot:
     items: list[NewsItem] = []
     warnings: list[WarningRecord] = []
     seen_urls: set[str] = set()
+    filtered_count = 0
 
     for record in evidence_pack.records:
         if record.evidence_type != EvidenceType.NEWS:
@@ -106,6 +120,9 @@ def normalize_news_snapshot(ticker: str, evidence_pack: EvidencePack, limit: int
             if isinstance(feed, list):
                 for item in feed:
                     parsed = _alpha_news_item(item, record.evidence_id)
+                    if parsed and not _is_news_relevant(ticker, parsed, company_name=company_name):
+                        filtered_count += 1
+                        continue
                     if parsed and _add_if_new(parsed, items, seen_urls, limit):
                         continue
         elif record.provider == "Finnhub /company-news":
@@ -113,10 +130,24 @@ def normalize_news_snapshot(ticker: str, evidence_pack: EvidencePack, limit: int
             if isinstance(payload_items, list):
                 for item in payload_items:
                     parsed = _finnhub_news_item(item, record.evidence_id)
+                    if parsed and not _is_news_relevant(ticker, parsed, company_name=company_name):
+                        filtered_count += 1
+                        continue
                     if parsed and _add_if_new(parsed, items, seen_urls, limit):
                         continue
 
     items.sort(key=lambda item: item.published_at, reverse=True)
+    if filtered_count:
+        warnings.append(
+            WarningRecord(
+                code="news.filtered_irrelevant",
+                message=(
+                    f"Filtered {filtered_count} news item(s) that did not directly reference "
+                    f"{ticker.upper()} in provider ticker metadata."
+                ),
+                severity=WarningSeverity.INFO,
+            )
+        )
     if not items:
         warnings.append(
             WarningRecord(
@@ -202,6 +233,39 @@ def _finnhub_surprises(rows: list[dict[str, Any]], evidence_id: str | None) -> l
     ]
 
 
+def _latest_history(
+    history: list[HistoricalEarningsQuarter],
+    *,
+    limit: int,
+) -> list[HistoricalEarningsQuarter]:
+    by_period: dict[object, HistoricalEarningsQuarter] = {}
+    undated: list[HistoricalEarningsQuarter] = []
+    for item in history:
+        if item.period is None:
+            undated.append(item)
+            continue
+        existing = by_period.get(item.period)
+        if existing is None or _history_completeness(item) > _history_completeness(existing):
+            by_period[item.period] = item
+
+    dated = sorted(by_period.values(), key=lambda item: item.period, reverse=True)
+    return [*dated, *undated][:limit]
+
+
+def _history_completeness(item: HistoricalEarningsQuarter) -> int:
+    return sum(
+        value is not None
+        for value in (
+            item.eps_actual,
+            item.eps_estimate,
+            item.revenue_actual,
+            item.revenue_estimate,
+            item.surprise,
+            item.surprise_percent,
+        )
+    )
+
+
 def _alpha_earnings_history(rows: list[dict[str, Any]], evidence_id: str | None) -> list[HistoricalEarningsQuarter]:
     return [
         HistoricalEarningsQuarter(
@@ -237,10 +301,12 @@ def _alpha_news_item(row: dict[str, Any], evidence_id: str | None) -> NewsItem |
         url=_as_str(row.get("url")),
         summary=_as_str(row.get("summary")),
         related_tickers=related,
-        provider_sentiment={
-            "overall_sentiment_score": row.get("overall_sentiment_score"),
-            "overall_sentiment_label": row.get("overall_sentiment_label"),
-        },
+        provider_sentiment=_compact_optional_metadata(
+            {
+                "overall_sentiment_score": row.get("overall_sentiment_score"),
+                "overall_sentiment_label": row.get("overall_sentiment_label"),
+            }
+        ),
         source_provider="Alpha Vantage",
         source_evidence_id=evidence_id,
     )
@@ -265,6 +331,37 @@ def _finnhub_news_item(row: dict[str, Any], evidence_id: str | None) -> NewsItem
         source_provider="Finnhub",
         source_evidence_id=evidence_id,
     )
+
+
+def _is_news_relevant(ticker: str, item: NewsItem, *, company_name: str | None = None) -> bool:
+    selected = ticker.upper()
+    related = {related_ticker.upper() for related_ticker in item.related_tickers}
+    if related:
+        return selected in related
+    text = f"{item.headline}\n{item.summary or ''}".upper()
+    return any(term in text for term in _company_relevance_terms(ticker, company_name))
+
+
+def _company_relevance_terms(ticker: str, company_name: str | None = None) -> set[str]:
+    selected = ticker.upper()
+    aliases = {
+        "AMZN": {"AMAZON"},
+        "GOOG": {"GOOG", "GOOGL", "GOOGLE", "ALPHABET"},
+        "GOOGL": {"GOOG", "GOOGL", "GOOGLE", "ALPHABET"},
+        "META": {"META", "FACEBOOK", "INSTAGRAM", "WHATSAPP"},
+        "NVDA": {"NVIDIA"},
+        "PLTR": {"PALANTIR"},
+    }
+    terms = {selected, *aliases.get(selected, set())}
+    if company_name:
+        cleaned = re.sub(r"[^A-Za-z0-9 ]+", " ", company_name.upper())
+        stopwords = {"INC", "CORP", "CORPORATION", "CO", "COM", "CLASS", "COMMON", "STOCK", "THE"}
+        terms.update(token for token in cleaned.split() if len(token) >= 4 and token not in stopwords)
+    return terms
+
+
+def _compact_optional_metadata(values: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in values.items() if value is not None}
 
 
 def _add_if_new(item: NewsItem, items: list[NewsItem], seen_urls: set[str], limit: int) -> bool:

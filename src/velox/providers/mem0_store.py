@@ -200,6 +200,7 @@ class Mem0ReportStore:
         brief: EarningsBrief,
         approved: bool,
         existing_memory_id: str | None = None,
+        previous_memory: PriorReportMemory | None = None,
     ) -> MemorySaveResult:
         started_at = datetime.now(UTC)
         if not approved:
@@ -245,7 +246,7 @@ class Mem0ReportStore:
                 ),
             )
 
-        memory = _memory_from_brief(company, brief)
+        memory = _memory_from_brief(company, brief, previous_memory=previous_memory)
         snapshot_path = self._write_local_snapshot(memory)
 
         if not self.settings.mem0_api_key and self.client is None:
@@ -412,15 +413,24 @@ def _metadata(company: CompanyIdentity, report_timestamp: datetime | None) -> di
     }
 
 
-def _memory_from_brief(company: CompanyIdentity, brief: EarningsBrief) -> PriorReportMemory:
+def _memory_from_brief(
+    company: CompanyIdentity,
+    brief: EarningsBrief,
+    *,
+    previous_memory: PriorReportMemory | None = None,
+) -> PriorReportMemory:
     summary = "\n".join(f"{section.title}: {section.body}" for section in brief.sections)
+    payload = brief.model_dump(mode="json")
+    prior_snapshots = _prior_snapshots(previous_memory)
+    if prior_snapshots:
+        payload["prior_approved_snapshots"] = prior_snapshots
     return PriorReportMemory(
         ticker=company.ticker,
         cik=company.cik,
         status=PriorReportStatus.FOUND,
         report_timestamp=brief.generated_at,
         summary=summary[:4000],
-        payload=brief.model_dump(mode="json"),
+        payload=payload,
     )
 
 
@@ -468,6 +478,7 @@ def _compact_memory_snapshot(memory: PriorReportMemory) -> dict[str, Any]:
     payload = memory.payload if isinstance(memory.payload, dict) else {}
     sections = payload.get("sections", [])
     warnings = payload.get("warnings", [])
+    prior_snapshots = payload.get("prior_approved_snapshots", [])
     return {
         "ticker": memory.ticker,
         "cik": memory.cik,
@@ -476,9 +487,21 @@ def _compact_memory_snapshot(memory: PriorReportMemory) -> dict[str, Any]:
         "company_name": payload.get("company_name"),
         "sections": sections if isinstance(sections, list) else [],
         "warnings": warnings if isinstance(warnings, list) else [],
+        "prior_approved_snapshots": prior_snapshots if isinstance(prior_snapshots, list) else [],
         "prompt_versions": payload.get("prompt_versions", {}),
         "model_ids": payload.get("model_ids", {}),
     }
+
+
+def _prior_snapshots(previous_memory: PriorReportMemory | None) -> list[dict[str, Any]]:
+    if previous_memory is None or previous_memory.status != PriorReportStatus.FOUND:
+        return []
+    snapshot = _compact_memory_snapshot(previous_memory)
+    older = snapshot.get("prior_approved_snapshots", [])
+    history = [snapshot]
+    if isinstance(older, list):
+        history.extend(item for item in older if isinstance(item, dict))
+    return history[:3]
 
 
 def _payload_from_memory_text(memory_text: str | None) -> dict[str, Any]:
